@@ -1,0 +1,6 @@
+.venv/
+data/
+.env
+/ai-lab-fasa.json
+__pycache__/
+tmp/
