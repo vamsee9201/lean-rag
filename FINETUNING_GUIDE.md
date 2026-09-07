@@ -953,7 +953,7 @@ For a project comparing RAG and fine-tuning, document-level separation matters p
 
 ## 21. Fine-tuning beyond language models
 
-The same broad idea—adapt a pretrained model—applies elsewhere, but data and objectives differ.
+The same broad idea of adapting a pretrained model applies elsewhere, but data and objectives differ.
 
 | Model/application | Training example | What adaptation can target |
 |---|---|---|

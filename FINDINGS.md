@@ -1,6 +1,6 @@
 # RAG model comparison: findings and recommendation
 
-## Vertex-hybrid experiment — September 6, 2026
+## Vertex-hybrid experiment: September 6, 2026
 
 The second experiment is complete. It compared pure BM25 with an equal-weight
 hybrid retriever that fuses BM25 and Vertex AI `gemini-embedding-001` rankings.
@@ -97,9 +97,9 @@ observed semantic answer score and hosted latency matter most.
 Do not replace the BM25 adapter with the new hybrid adapter based on this run.
 Keep the new adapter as a fully reproducible negative result: it establishes
 that rebuilding the same supervision with hybrid distractors did not add value.
-A future fine-tune should change the supervision itself—for example, add
+A future fine-tune should change the supervision itself. For example, add
 verified hard negatives, explicit cross-document synthesis examples, and
-retrieval-failure abstentions—then evaluate on a larger sealed cross-document
+retrieval-failure abstentions, then evaluate on a larger sealed cross-document
 set. Repeating the same fine-tune recipe on another retriever is not justified
 by these results.
 
@@ -120,7 +120,7 @@ configuration, checksums, and response statistics are recorded instead.
 
 ---
 
-## Final fine-tuned comparison — September 6, 2026
+## Final fine-tuned comparison: September 6, 2026
 
 The full Qwen3.5 9B LoRA fine-tune completed successfully. It trained for one
 epoch (564 optimizer steps) on 2,256 RAG examples and used checkpoint 500, which
