@@ -1,9 +1,9 @@
 # Lean RAG
 
-Lean RAG is a controlled comparison of local and cloud retrieval augmented
-generation over public GovInfo documents. The project separates retrieval
-quality from answer generation, then measures what happens when both a local
-embedding model and a local 9 billion parameter language model are fine-tuned.
+Lean RAG tests how far a fully controllable local RAG system can go over public
+GovInfo documents. The project separates retrieval quality from answer
+generation, then measures what happens when both a local embedding model and a
+local 9 billion parameter language model are fine-tuned.
 
 The third experiment is complete. It contains 1,000 answers from 20 matched
 cells, 2,000 blinded model ratings, 10,000-sample paired bootstrap intervals,
@@ -13,15 +13,21 @@ and three prepared human review sheets.
 
 ## Main result
 
-The fresh Qwen adapter is a strong answer generator. With the best evidence in
-this experiment, Vertex hybrid retrieval, it scored **81.0%**, compared with
-**79.0%** for Gemini 3.8 Flash. This two-point point estimate does not establish
-that Qwen is better because the paired uncertainty interval is wide.
+The local Qwen generator succeeded. With retrieval held constant, the fresh
+Qwen adapter produced the highest observed score in the experiment: **81.0%**,
+compared with **79.0%** for Gemini 3.8 Flash over the same Vertex hybrid
+evidence. Qwen also achieved higher exact citation recall, 79% versus 74%. The
+sample is too small to claim statistical superiority, but the result shows
+that a locally deployable 9B generator can match the answer quality of the
+hosted model on this workload.
 
-The fine-tuned local embedding model did not improve retrieval. Its hybrid
+The remaining local-system problem is retrieval. The fine-tuned local embedding
+model did not improve retrieval. Its hybrid
 all-gold recall fell to **62%**, compared with **72%** for the untuned local
 hybrid and **78%** for Vertex hybrid. This retrieval loss reduced the complete
-local stack to **68.0%**, eleven points below the Vertex plus Gemini cloud stack.
+local stack to **68.0%**. The generator comparison confirms the diagnosis:
+Qwen and Gemini both scored 68.0% when they received those same tuned-local
+passages.
 
 | Generator | BM25 | Vertex hybrid | Untuned local hybrid | Tuned local hybrid |
 |---|---:|---:|---:|---:|
@@ -44,11 +50,11 @@ bootstrap interval from **-9 to +8 points**. The one-sided lower bound was
 **-7.5 points**, so Qwen did not meet the predefined five-point non-inferiority
 criterion.
 
-The complete local stack scored eleven points below the complete cloud stack.
-Its paired 95% interval was **-25 to +2.5 points**, and the Holm-adjusted result
-was not statistically significant. The point estimate is still operationally
-meaningful and agrees with the retrieval measurements: the embedding fine-tune
-made the supplied evidence worse.
+The complete local stack scored eleven points below the Vertex plus Gemini
+reference stack. Its paired 95% interval was **-25 to +2.5 points**, and the
+Holm-adjusted result was not statistically significant. This does not weaken
+the local-generator result. It identifies the next engineering target: improve
+the local embedding training recipe while keeping the successful Qwen adapter.
 
 The new Qwen adapter improved by 2.5 points over base Qwen with identical tuned
 local contexts. Its interval was **-3 to +7.5 points**. It also remained within
@@ -74,6 +80,11 @@ from 53% to 44%. This is a useful negative result: domain data and hard
 negatives do not guarantee a better retriever. The loss, sampling strategy, and
 positive-passage construction need further study before this tuned retriever is
 used in production.
+
+The untuned local hybrid already provides a viable local baseline. Paired with
+the new Qwen adapter, it scored **74.5%** with no Vertex embeddings or Gemini
+generation at runtime. The path forward is to recover and exceed that retrieval
+baseline through better local embedding supervision.
 
 ## How Qwen became competitive
 
@@ -140,6 +151,22 @@ These projections exclude retrieval, networking, storage, taxes, engineering
 labor, and idle GPU time. On owned hardware, Qwen has no external per-token
 fee, but electricity, hardware purchase, maintenance, and capacity still cost
 money.
+
+## Local-first recommendation
+
+Use **untuned GTE plus BM25 hybrid retrieval with the new Qwen adapter** as the
+current fully local system. Treat Vertex hybrid as an experimental retrieval
+ceiling that demonstrates what the Qwen generator can do when supplied with
+stronger passages. Continue improving the local embedder without retraining
+Qwen unless a new evaluation reveals a generator-specific problem.
+
+This gives the project a clear result and next step:
+
+- local Qwen generation reached hosted-model quality;
+- the fully local baseline is already useful at 74.5%;
+- embedding fine-tuning is the remaining bottleneck; and
+- better local retrieval can close the end-to-end gap without replacing the
+  local generator.
 
 ## Why local models matter
 

@@ -206,6 +206,14 @@ bound was -7.5 points, so the predefined five-point non-inferiority criterion
 was not met. The complete local stack trailed the Vertex plus Gemini cloud
 stack by eleven points, with a paired 95% interval from -25 to +2.5 points.
 
+The controlled generator result is stronger than the complete-stack result:
+the new Qwen adapter scored 81.0% with Vertex hybrid passages, the highest point
+estimate in the matrix, while Gemini scored 79.0% with byte-identical evidence.
+The fully local untuned-GTE hybrid plus new Qwen reached 74.5%. These results
+locate the remaining local-system opportunity in retrieval rather than answer
+generation. Future local experiments should freeze Qwen and improve the GTE
+training recipe.
+
 Presentation-ready tables are under
 `data/local_retriever_experiment/results/`. The three blank human-review files
 are under `data/local_retriever_experiment/human_review/`.

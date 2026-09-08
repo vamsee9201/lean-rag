@@ -10,10 +10,12 @@ blinded identities. Their weighted agreement was 0.862.
 
 ### Overall conclusion
 
-The fresh Qwen adapter is competitive as a generator. It achieved the highest
-point estimate in the matrix, **81.0% with Vertex hybrid evidence**, compared
-with **79.0% for Gemini** over the same evidence. The observed advantage is too
-small and uncertain to support a Qwen superiority claim.
+The local Qwen generator succeeded. It achieved the highest point estimate in
+the matrix, **81.0% with Vertex hybrid evidence**, compared with **79.0% for
+Gemini** over the same evidence. It also achieved higher exact citation recall,
+79% versus 74%. The observed advantage is too uncertain for a statistical
+superiority claim, but it demonstrates hosted-model answer quality from a
+locally deployable 9B generator under controlled retrieval.
 
 The new embedding fine-tune failed to improve retrieval. Tuned local hybrid
 retrieval reached 62% all-gold recall, down from 72% for the untuned local
@@ -21,7 +23,9 @@ hybrid and 78% for Vertex hybrid. As a result, the complete local stack scored
 68.0%, compared with 79.0% for the Vertex hybrid plus Gemini cloud stack.
 
 This distinction is the most important result. Qwen was not the weak component
-in the local system. The tuned retriever supplied worse evidence.
+in the local system. Qwen and Gemini tied at 68.0% when both received the tuned
+local passages. The tuned retriever supplied worse evidence, giving the project
+a specific local component to improve.
 
 ### Complete 4 by 5 answer-quality matrix
 
@@ -93,12 +97,16 @@ for L4 embedding work, $5.04 for L40S Qwen training, inference, and judging,
 $0.59 for Vertex document embeddings, and $0.83 for Gemini generation and
 judging. The experiment remained below its $15 hard budget.
 
-For this corpus, the recommended current system is **Vertex hybrid retrieval
-plus the new Qwen adapter** when cloud embeddings and local generation are
-acceptable. It had the best observed answer score and strong citations. For a
-fully local system, use **untuned GTE hybrid retrieval plus the new Qwen
-adapter** while improving the embedding training recipe. That combination
-scored 74.5%, compared with 68.0% for the tuned local stack.
+The project recommendation is **untuned GTE hybrid retrieval plus the new Qwen
+adapter**. This fully local combination scored 74.5% and avoids hosted
+embeddings and generation at runtime. Vertex hybrid plus Qwen remains the
+experimental ceiling: its 81.0% result shows that the local generator is ready
+and that closing the remaining end-to-end gap depends on local retrieval.
+
+The next experiment should improve the GTE training examples, positive-passage
+construction, loss, and hard-negative curriculum. Qwen should remain frozen so
+the retrieval change can be measured cleanly. The current tuned GTE checkpoint
+should be preserved as a reproducible negative result rather than deployed.
 
 Local deployment remains valuable where connectivity is unreliable or absent,
 including flights, ships, field sites, remote clinics, rural locations, and
