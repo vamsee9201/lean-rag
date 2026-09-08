@@ -14,9 +14,12 @@ SYSTEM = (
     "You are a strict blind evaluator. Score each candidate against the reference and gold evidence. "
     "Use answer_score 2 for fully correct, 1 for partly correct, and 0 for incorrect, unsupported, or "
     "a wrong abstention. Use citation_score 1 only when all needed cited document IDs and pages are "
-    "correct, and 0 when any needed citation is missing or wrong. Return only a JSON array with one "
-    "object per candidate containing id, answer_score, citation_score, and a rationale of at most 12 "
-    "words. Preserve every candidate id."
+    "correct, and 0 when any needed citation is missing or wrong. Set unsupported_claim to 1 when the "
+    "answer contains a material factual claim not supported by the gold evidence, otherwise 0. Return "
+    "only a JSON array with one object per candidate. Every object must contain exactly these five "
+    "keys: id, answer_score, citation_score, unsupported_claim, and rationale. Use unsupported_claim "
+    "0 when the answer has no unsupported material claim. Keep each rationale to at most 12 words. "
+    "Preserve every candidate id."
 )
 
 
@@ -31,6 +34,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mapping", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=20260906)
+    parser.add_argument("--expected-per-question", type=int, default=8)
+    parser.add_argument("--candidates-per-prompt", type=int)
     args = parser.parse_args()
     questions = read_jsonl(args.questions)
     by_question = {row["question_id"]: [] for row in questions}
@@ -38,36 +43,51 @@ def main() -> None:
         if row.get("status") == "ok":
             by_question[row["question_id"]].append(row)
     rng = random.Random(args.seed)
+    group_size = args.candidates_per_prompt or args.expected_per_question
+    if group_size <= 0 or args.expected_per_question % group_size:
+        raise ValueError("candidates-per-prompt must evenly divide expected-per-question")
     mappings = []
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as stream:
         for question in questions:
             candidates = by_question[question["question_id"]]
-            if len(candidates) != 8:
-                raise ValueError(f"Expected 8 answers for {question['question_id']}, found {len(candidates)}")
+            if len(candidates) != args.expected_per_question:
+                raise ValueError(
+                    f"Expected {args.expected_per_question} answers for "
+                    f"{question['question_id']}, found {len(candidates)}"
+                )
             rng.shuffle(candidates)
-            blinded = [(f"a{index:02d}", row) for index, row in enumerate(candidates, 1)]
             passages = "\n".join(
                 f"- {document} p.{page}: {quote}"
                 for document, page, quote in zip(
                     question["gold_documents"], question["gold_pages"], question["gold_passages"]
                 )
             )
-            candidate_text = "\n\n".join(f"{label}: {row['answer']}" for label, row in blinded)
-            prompt = (
-                f"EVALUATION_ID\n{question['question_id']}\n\nQUESTION\n{question['question']}"
-                f"\n\nREFERENCE ANSWER\n{question['reference_answer']}\n\nGOLD EVIDENCE\n{passages}"
-                f"\n\nCANDIDATES\n{candidate_text}"
-            )
-            stream.write(json.dumps({"messages": [
-                {"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt},
-            ]}, ensure_ascii=False) + "\n")
-            mappings.append({
-                "question_id": question["question_id"],
-                "labels": {label: {"model": row["model"], "setup": row["setup"]} for label, row in blinded},
-            })
+            for group_index, start in enumerate(range(0, len(candidates), group_size), 1):
+                group = candidates[start:start + group_size]
+                blinded = [(f"a{index:02d}", row) for index, row in enumerate(group, 1)]
+                evaluation_id = f"{question['question_id']}:g{group_index:02d}"
+                candidate_text = "\n\n".join(f"{label}: {row['answer']}" for label, row in blinded)
+                prompt = (
+                    f"EVALUATION_ID\n{evaluation_id}\n\nQUESTION\n{question['question']}"
+                    f"\n\nREFERENCE ANSWER\n{question['reference_answer']}\n\nGOLD EVIDENCE\n{passages}"
+                    f"\n\nCANDIDATES\n{candidate_text}"
+                )
+                stream.write(json.dumps({"messages": [
+                    {"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt},
+                ]}, ensure_ascii=False) + "\n")
+                mappings.append({
+                    "evaluation_id": evaluation_id,
+                    "question_id": question["question_id"],
+                    "labels": {
+                        label: {"model": row["model"], "setup": row["setup"]}
+                        for label, row in blinded
+                    },
+                })
     manifest = {
         "seed": args.seed, "judge_model": "Qwen/Qwen3.5-9B", "records": len(mappings),
+        "expected_per_question": args.expected_per_question,
+        "candidates_per_prompt": group_size,
         "input_sha256": hashlib.sha256(args.output.read_bytes()).hexdigest(), "mappings": mappings,
     }
     args.mapping.write_text(json.dumps(manifest, indent=2) + "\n")

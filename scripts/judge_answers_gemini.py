@@ -71,8 +71,10 @@ def main() -> None:
         "Use answer_score 2 for fully correct, 1 for partly correct, and 0 for incorrect, unsupported, or "
         "a wrong abstention. For an unanswerable question, only an appropriate abstention earns 2. Use "
         "citation_score 1 only when all needed cited document IDs and pages are correct, and 0 when any "
-        "needed citation is missing or wrong. citation_score must never be 2. Return only a JSON array with "
-        "one object per candidate containing id, answer_score, citation_score, and a rationale of at most "
+        "needed citation is missing or wrong. citation_score must never be 2. Set unsupported_claim to 1 "
+        "when the answer contains a material factual claim not supported by the gold evidence, otherwise "
+        "0. Return only a JSON array with one object per candidate containing id, answer_score, "
+        "citation_score, unsupported_claim, and a rationale of at most "
         "12 words. Preserve every candidate id."
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -121,6 +123,8 @@ def main() -> None:
                         raise ValueError("Judge returned an invalid answer_score")
                     if any(rating.get("citation_score") not in {0, 1} for rating in ratings):
                         raise ValueError("Judge returned an invalid citation_score")
+                    if any(rating.get("unsupported_claim") not in {0, 1} for rating in ratings):
+                        raise ValueError("Judge returned an invalid unsupported_claim")
                     break
                 except (IndexError, KeyError, TypeError, ValueError) as exc:
                     last_error = exc
@@ -138,6 +142,7 @@ def main() -> None:
                     "citation_score": (
                         None if not question["answerable"] else rating["citation_score"]
                     ),
+                    "unsupported_claim": rating["unsupported_claim"],
                     "rationale": rating.get("rationale", ""),
                 }
                 scores.write(json.dumps(output, ensure_ascii=False) + "\n")

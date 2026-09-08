@@ -1,5 +1,120 @@
 # RAG model comparison: findings and recommendation
 
+## Fine-tuned local retriever experiment: September 8, 2026
+
+The third experiment is complete. It used 90 previously unused searchable
+GovInfo PDFs and 50 newly generated, verified, and sealed questions. The design
+crossed four retrievers with five generator states, producing 1,000 answers.
+Gemini 3.8 Flash and untuned Qwen3.5 9B independently rated every answer under
+blinded identities. Their weighted agreement was 0.862.
+
+### Overall conclusion
+
+The fresh Qwen adapter is competitive as a generator. It achieved the highest
+point estimate in the matrix, **81.0% with Vertex hybrid evidence**, compared
+with **79.0% for Gemini** over the same evidence. The observed advantage is too
+small and uncertain to support a Qwen superiority claim.
+
+The new embedding fine-tune failed to improve retrieval. Tuned local hybrid
+retrieval reached 62% all-gold recall, down from 72% for the untuned local
+hybrid and 78% for Vertex hybrid. As a result, the complete local stack scored
+68.0%, compared with 79.0% for the Vertex hybrid plus Gemini cloud stack.
+
+This distinction is the most important result. Qwen was not the weak component
+in the local system. The tuned retriever supplied worse evidence.
+
+### Complete 4 by 5 answer-quality matrix
+
+| Generator | BM25 | Vertex hybrid | Untuned local hybrid | Tuned local hybrid |
+|---|---:|---:|---:|---:|
+| Gemini 3.8 Flash | 79.5% | 79.0% | 75.0% | 68.0% |
+| Base Qwen3.5 9B | 73.5% | 79.5% | 74.5% | 65.5% |
+| BM25-trained Qwen | 73.0% | 80.0% | 72.0% | 69.5% |
+| Vertex-hybrid-trained Qwen | 72.5% | 80.0% | 71.5% | 69.5% |
+| **Local-hybrid-trained Qwen** | 73.0% | **81.0%** | **74.5%** | 68.0% |
+
+The primary score is the normalized mean of the two blinded judge scores. Each
+cell contains 50 answers. Questions, evidence, evidence order, prompts, and
+citation labels were byte-identical across generators within each retriever.
+
+The strongest Qwen cell, local-hybrid-trained Qwen with Vertex hybrid evidence,
+also achieved 79% exact citation recall, 0.484 token F1, a 9% unsupported-claim
+rate, and a mean generation time of 4.68 seconds. Gemini with the same evidence
+had 74% citation recall, 0.321 token F1, a 7% unsupported-claim rate, and a mean
+time of 1.89 seconds. Runtime reflects different serving environments and is
+not a hardware-normalized speed comparison.
+
+### Retrieval comparison
+
+| Retriever | All-gold recall@5 | Mean passage recall@5 | MRR | nDCG@5 | Cross-document all-gold recall |
+|---|---:|---:|---:|---:|---:|
+| BM25 | 68% | 76% | **0.688** | 0.678 | 0% |
+| Vertex dense | 68% | 73% | 0.534 | 0.570 | **60%** |
+| **Vertex hybrid** | **78%** | **84%** | **0.688** | **0.709** | **60%** |
+| Untuned local dense | 58% | 68% | 0.546 | 0.557 | 40% |
+| Untuned local hybrid | 72% | 79% | 0.652 | 0.658 | 20% |
+| Tuned local dense | 30% | 40% | 0.371 | 0.337 | 0% |
+| Tuned local hybrid | 62% | 72% | 0.628 | 0.615 | 0% |
+
+The fine-tuned embedder already underperformed on validation before the sealed
+test was opened. Base GTE validation all-gold recall@5 was 53%; the selected
+tuned checkpoint reached 44%. The sealed test confirmed the regression. The
+model, checkpoint, training data hashes, hard negatives, truncation audit, and
+index checksums are preserved, so the negative result is reproducible.
+
+### Fine-tuning and statistical conclusions
+
+| Comparison | Mean difference | Paired 95% interval | Interpretation |
+|---|---:|---:|---|
+| New Qwen minus Gemini, same tuned-local evidence | 0.0 points | -9 to +8 | Observed tie; non-inferiority not established |
+| Complete local minus complete cloud | -11.0 points | -25 to +2.5 | Point estimate favors cloud; corrected result inconclusive |
+| New Qwen minus base, same tuned-local evidence | +2.5 points | -3 to +7.5 | Small, inconclusive fine-tuning gain |
+| New Qwen minus BM25 adapter, same evidence | -1.5 points | -6.5 to +3 | No established difference |
+| New Qwen minus Vertex adapter, same evidence | -1.5 points | -6 to +2 | No established difference |
+
+The one-sided 95% lower bound for new Qwen minus Gemini under identical tuned
+local contexts was -7.5 points. That is below the predefined -5-point margin,
+so the experiment does not establish non-inferiority. No secondary comparison
+was significant after Holm correction.
+
+The fresh Qwen fine-tune completed successfully. It used 2,256 training and 111
+validation records rebuilt with tuned local hybrid contexts, trained for one
+epoch from the untouched base model, and selected checkpoint 500. Its adapter
+reload test produced 20 of 20 valid responses. The selected 83 MB LoRA weights
+are public at `vamsee9201/qwen35-9b-local-hybrid-rag-lora` and stored locally
+under
+`data/local_retriever_experiment/models/qwen_local_adapter/run1/v0-20260908-110116/checkpoint-500/`.
+
+### Cost and practical recommendation
+
+The third experiment cost approximately **$8.27**, including unsuccessful
+embedding runs and repeated Qwen judge jobs. Estimated components were $1.81
+for L4 embedding work, $5.04 for L40S Qwen training, inference, and judging,
+$0.59 for Vertex document embeddings, and $0.83 for Gemini generation and
+judging. The experiment remained below its $15 hard budget.
+
+For this corpus, the recommended current system is **Vertex hybrid retrieval
+plus the new Qwen adapter** when cloud embeddings and local generation are
+acceptable. It had the best observed answer score and strong citations. For a
+fully local system, use **untuned GTE hybrid retrieval plus the new Qwen
+adapter** while improving the embedding training recipe. That combination
+scored 74.5%, compared with 68.0% for the tuned local stack.
+
+Local deployment remains valuable where connectivity is unreliable or absent,
+including flights, ships, field sites, remote clinics, rural locations, and
+secure facilities. It also provides control over privacy, data residency,
+model versions, and per-token fees. The experiment does not support deploying
+the current tuned GTE checkpoint merely because it is domain-specific.
+
+Human review sheets covering the three predefined comparisons are prepared but
+not yet completed. Results in this section are automated, dual-model judge
+findings. The 50-question benchmark leaves substantial uncertainty around
+small differences.
+
+Detailed procedure: [LOCAL_RETRIEVER_EXPERIMENT.md](LOCAL_RETRIEVER_EXPERIMENT.md)
+
+---
+
 ## Vertex-hybrid experiment: September 6, 2026
 
 The second experiment is complete. It compared pure BM25 with an equal-weight

@@ -12,6 +12,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "cloud"))
 
 from build_bm25 import chunks_for_page
 from build_raft_sft import clip_text
@@ -19,9 +20,23 @@ from extract_corpus import select_stratified
 from prepare_finetune_split import split_documents
 from retrieve_benchmark import metrics as retrieval_metrics
 from hybrid_retrieval import DenseIndex, normalize, reciprocal_rank_fusion
+from retriever_training_utils import resolve_positives, valid_negative
 
 
 class PipelineTests(unittest.TestCase):
+    def test_retriever_supervision_resolves_gold_and_filters_unsafe_negatives(self):
+        question = {
+            "question_id": "q1", "reference_answer": "17 countries",
+            "gold_documents": ["gold"], "gold_pages": [3],
+            "gold_passages": ["robots raised productivity across 17 countries"],
+        }
+        positive = {"chunk_id": "gold:p3:c0", "text": "The robots raised productivity across 17 countries."}
+        positives = resolve_positives(question, {("gold", 3): [positive]})
+        self.assertEqual(positives, ["gold:p3:c0"])
+        self.assertFalse(valid_negative(positive, question, set(positives)))
+        self.assertFalse(valid_negative({"chunk_id": "x", "text": "The study covered 17 countries."}, question, set(positives)))
+        self.assertTrue(valid_negative({"chunk_id": "y", "text": "The report covers unrelated fiscal policy."}, question, set(positives)))
+
     def test_stratified_selection_is_prefix_stable(self):
         rows = []
         for collection in ("A", "B", "C"):

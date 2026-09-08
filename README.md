@@ -1,298 +1,186 @@
 # Lean RAG
 
-Lean RAG is a reproducible comparison of a local 9 billion parameter model and
-Gemini 3.8 Flash on the same retrieval-augmented generation workload.
+Lean RAG is a controlled comparison of local and cloud retrieval augmented
+generation over public GovInfo documents. The project separates retrieval
+quality from answer generation, then measures what happens when both a local
+embedding model and a local 9 billion parameter language model are fine-tuned.
 
-The project asks a practical question: can a small, locally deployable model
-answer questions over a real document collection well enough to replace a
-hosted frontier model for many applications?
+The third experiment is complete. It contains 1,000 answers from 20 matched
+cells, 2,000 blinded model ratings, 10,000-sample paired bootstrap intervals,
+and three prepared human review sheets.
 
-The answer from this experiment is yes, with qualifications. The best local
-configuration reached **79.5%**, compared with **82.0%** for Gemini 3.8 Flash,
-when both models received the same five passages from the Vertex hybrid
-retriever.
+[Complete findings](FINDINGS.md) | [Third experiment reproduction guide](LOCAL_RETRIEVER_EXPERIMENT.md) | [Qwen adapter](https://huggingface.co/vamsee9201/qwen35-9b-local-hybrid-rag-lora) | [GTE retriever](https://huggingface.co/vamsee9201/gte-modernbert-govinfo-retriever)
 
-[Read the complete findings](FINDINGS.md) | [Review the hybrid experiment](HYBRID_EXPERIMENT.md) | [Open the public model](https://huggingface.co/vamsee9201/qwen35-9b-hybrid-rag-lora)
+## Main result
 
-## Result at a glance
+The fresh Qwen adapter is a strong answer generator. With the best evidence in
+this experiment, Vertex hybrid retrieval, it scored **81.0%**, compared with
+**79.0%** for Gemini 3.8 Flash. This two-point point estimate does not establish
+that Qwen is better because the paired uncertainty interval is wide.
 
-The final experiment used 50 sealed questions and eight matched evaluation
-cells. Each generator received byte-identical questions, evidence, evidence
-order, and system prompts within a retrieval condition.
+The fine-tuned local embedding model did not improve retrieval. Its hybrid
+all-gold recall fell to **62%**, compared with **72%** for the untuned local
+hybrid and **78%** for Vertex hybrid. This retrieval loss reduced the complete
+local stack to **68.0%**, eleven points below the Vertex plus Gemini cloud stack.
 
-| Generator | BM25 | Vertex hybrid | Exact citation recall with hybrid |
-|---|---:|---:|---:|
-| Gemini 3.8 Flash | 75.0% | **82.0%** | 73% |
-| Base Qwen3.5 9B | 76.5% | 77.0% | 57% |
-| BM25-trained Qwen3.5 9B | 76.0% | **79.5%** | 73% |
-| Hybrid-trained Qwen3.5 9B | 75.5% | 77.5% | **74%** |
-
-The primary score is the normalized mean of two independently randomized blind
-judges, Gemini 3.8 Flash and untuned Qwen3.5 9B. Every cell contains 50 answers.
-
-The best local configuration was the **BM25-trained Qwen adapter with Vertex
-hybrid retrieval**. Its point estimate was 2.5 percentage points below Gemini.
-The separate hybrid-trained adapter did not improve performance, which is an
-important negative result: a model does not necessarily need to be fine-tuned
-again when the retrieval system changes.
-
-## Why this experiment matters
-
-Hosted models are easy to call, but they are not the right answer for every
-system. Teams also care about privacy, connectivity, predictable costs,
-customization, reproducibility, and control over model availability.
-
-This experiment contributes evidence on those tradeoffs instead of comparing
-models with unrelated prompts or retrieval results. It:
-
-- holds retrieved evidence constant when comparing generators;
-- separates retrieval improvements from generator improvements;
-- tests whether fine-tuning learned general RAG behavior or overfit one
-  retriever;
-- uses public government documents and a sealed held-out benchmark;
-- evaluates 400 answers with two independently blinded model judges;
-- reports paired confidence intervals and a predefined non-inferiority margin;
-- preserves a negative fine-tuning result instead of reporting only the best
-  run; and
-- publishes the code, adapter, benchmark, checksums, and result tables.
-
-The most useful finding is not simply that Qwen came close to Gemini. The
-experiment shows how it got close. Better retrieval raised the quality of the
-evidence, while one targeted LoRA adapter taught the local model grounded answer
-style and citation behavior that transferred to a different retriever.
-
-## How we closed the gap with Gemini
-
-1. **Build a real corpus.** The project downloaded public GovInfo PDFs and froze
-   a deterministic 500-document subset. Of those, 450 contained searchable
-   extracted text.
-2. **Keep the evidence traceable.** Text was stored by document and page, then
-   split into 350-word chunks with 50-word overlap.
-3. **Separate train, validation, and test documents.** The searchable splits
-   contain 315, 45, and 90 documents. No document crosses splits.
-4. **Establish a lexical baseline.** SQLite FTS5 provided pure BM25 retrieval.
-5. **Add semantic retrieval.** Vertex AI `gemini-embedding-001` vectors were
-   fused with BM25 rankings using reciprocal-rank fusion.
-6. **Fine-tune Qwen.** The first LoRA adapter used 2,256 verified RAG records
-   built with BM25 contexts. Training used one epoch, rank 8, alpha 32, and
-   all-linear targets.
-7. **Test adapter transfer.** The BM25-trained adapter was evaluated unchanged
-   with hybrid contexts and became the strongest local configuration.
-8. **Run a controlled second fine-tune.** A new adapter was trained from the
-   original Qwen base with the same supervision rebuilt around hybrid contexts.
-   It worked correctly but did not beat the first adapter.
-9. **Evaluate without revealing identities.** Candidate model and retriever
-   names were hidden from both judges, with independent candidate shuffles.
-10. **Quantify uncertainty.** The final comparisons used 10,000 paired bootstrap
-    samples and a five-point non-inferiority margin.
-
-```mermaid
-flowchart LR
-    A[500 GovInfo PDFs] --> B[Page extraction]
-    B --> C[350-word chunks]
-    C --> D[BM25 index]
-    C --> E[Vertex dense index]
-    D --> F[Reciprocal-rank fusion]
-    E --> F
-    D --> G[BM25 top five]
-    F --> H[Hybrid top five]
-    G --> I[Gemini and three Qwen states]
-    H --> I
-    I --> J[Two blinded judges]
-    J --> K[Paired statistical analysis]
-```
-
-## Retrieval findings
-
-| Retriever | All-gold recall | Mean passage recall | MRR | nDCG |
+| Generator | BM25 | Vertex hybrid | Untuned local hybrid | Tuned local hybrid |
 |---|---:|---:|---:|---:|
-| BM25 | 70% | 77% | 0.710 | 0.697 |
-| Vertex dense | **78%** | 83% | 0.740 | 0.727 |
-| BM25 plus Vertex hybrid | **78%** | **84%** | **0.811** | **0.777** |
+| Gemini 3.8 Flash | 79.5% | 79.0% | 75.0% | 68.0% |
+| Base Qwen3.5 9B | 73.5% | 79.5% | 74.5% | 65.5% |
+| BM25-trained Qwen | 73.0% | 80.0% | 72.0% | 69.5% |
+| Vertex-hybrid-trained Qwen | 72.5% | 80.0% | 71.5% | 69.5% |
+| **New local-hybrid-trained Qwen** | 73.0% | **81.0%** | **74.5%** | 68.0% |
 
-Hybrid retrieval produced the strongest overall ranking. Cross-document
-questions remain the main weakness. Dense retrieval found useful evidence that
-fusion occasionally pushed out of the final five passages, so retrieval fusion
-and document diversity are the next engineering targets.
+The primary score is the normalized mean of two independently blinded judges,
+Gemini 3.8 Flash and untuned Qwen3.5 9B. Every cell contains the same 50 sealed
+questions. Within a retrieval column, every generator received byte-identical
+questions, evidence, evidence order, and system prompts.
 
-## Fine-tuning findings
+## What the statistics support
 
-Two Qwen3.5 9B LoRA adapters were trained independently from the original base
-model:
+Under identical tuned-local evidence, the new Qwen adapter and Gemini both
+scored **68.0%**. Their paired difference was zero, with a two-sided 95%
+bootstrap interval from **-9 to +8 points**. The one-sided lower bound was
+**-7.5 points**, so Qwen did not meet the predefined five-point non-inferiority
+criterion.
 
-| Adapter | Training context | Selected checkpoint | Hybrid score |
-|---|---|---:|---:|
-| BM25-trained adapter | BM25 top-five contexts | 500 | **79.5%** |
-| Hybrid-trained adapter | Vertex hybrid top-five contexts | 564 | 77.5% |
+The complete local stack scored eleven points below the complete cloud stack.
+Its paired 95% interval was **-25 to +2.5 points**, and the Holm-adjusted result
+was not statistically significant. The point estimate is still operationally
+meaningful and agrees with the retrieval measurements: the embedding fine-tune
+made the supplied evidence worse.
 
-The hybrid-trained adapter completed successfully, reached a validation loss of
-0.06357, passed a 20-example reload test, and achieved the best exact citation
-recall. It still trailed the BM25-trained adapter by two points on the primary
-answer score under hybrid retrieval.
+The new Qwen adapter improved by 2.5 points over base Qwen with identical tuned
+local contexts. Its interval was **-3 to +7.5 points**. It also remained within
+1.5 points of both earlier adapters under those contexts. The experiment
+therefore shows a capable new adapter, but no statistically established
+fine-tuning advantage among the Qwen generator states.
 
-This result suggests that the first adapter learned behavior that generalized:
-use supplied evidence, answer concisely, cite document and page identifiers,
-and abstain when necessary. Merely changing the distractor distribution did not
-add enough new information to justify another fine-tune.
+## Retrieval result
 
-## Cost and savings
+| Retriever | All-gold recall@5 | Mean passage recall@5 | MRR | nDCG@5 | Cross-document recall |
+|---|---:|---:|---:|---:|---:|
+| BM25 | 68% | 76% | **0.688** | 0.678 | 0% |
+| Vertex dense | 68% | 73% | 0.534 | 0.570 | **60%** |
+| **Vertex hybrid** | **78%** | **84%** | **0.688** | **0.709** | **60%** |
+| Untuned local dense | 58% | 68% | 0.546 | 0.557 | 40% |
+| Untuned local hybrid | 72% | 79% | 0.652 | 0.658 | 20% |
+| Tuned local dense | 30% | 40% | 0.371 | 0.337 | 0% |
+| Tuned local hybrid | 62% | 72% | 0.628 | 0.615 | 0% |
 
-The full second experiment cost approximately **$10.99**.
+The validation-selected embedding checkpoint also trailed its base model before
+the sealed test was opened. Fine-tuning reduced validation all-gold recall@5
+from 53% to 44%. This is a useful negative result: domain data and hard
+negatives do not guarantee a better retriever. The loss, sampling strategy, and
+positive-passage construction need further study before this tuned retriever is
+used in production.
+
+## How Qwen became competitive
+
+1. Public PDFs were extracted by page and split by document, preventing a
+   document from crossing train, validation, and test.
+2. Text was divided into 350-word passages with 50-word overlap and traceable
+   document and page identifiers.
+3. Qwen training used 2,256 verified RAG examples, including answerable and
+   unanswerable cases, grounded answers, and exact citation syntax.
+4. The fresh adapter started from `Qwen/Qwen3.5-9B`, used rank-8 LoRA, and
+   trained for one epoch. It did not continue from an earlier adapter.
+5. The final benchmark used 90 previously unused searchable PDFs and 50 sealed
+   questions. No test document or passage entered either training process.
+6. Every generator was tested with each frozen retriever, which exposed the
+   difference between a strong generator and a weak complete stack.
+
+The selected adapter weights are an 83 MB LoRA delta. They are stored locally
+at
+`data/local_retriever_experiment/models/qwen_local_adapter/run1/v0-20260908-110116/checkpoint-500/adapter_model.safetensors`
+and publicly in the linked Hugging Face repository. The original
+`Qwen/Qwen3.5-9B` base weights are loaded separately.
+
+## Cost
+
+The third experiment cost approximately **$8.3**, including failed and repeated
+training and judge jobs. It stayed below the $15 hard budget.
 
 | Component | Estimated cost |
 |---|---:|
-| Vertex document and query embeddings | $8.38 |
-| 100 Gemini answers | $0.23 |
-| 400 Gemini judge scores | $0.10 |
-| Qwen smoke test and full fine-tune | $1.30 |
-| 300 Qwen evaluation answers | $0.62 |
-| 400 Qwen judge scores | $0.35 |
-| **Total** | **$10.99** |
+| GTE training on Hugging Face L4, including failed runs | $1.81 |
+| Qwen training, inference, and judging on Hugging Face L40S | $5.04 |
+| Vertex embeddings for 4.95 million document tokens | $0.59 |
+| Gemini benchmark generation | $0.08 |
+| 200 Gemini answers | $0.50 |
+| 1,000 Gemini judge ratings | $0.25 |
+| **Estimated total** | **$8.27** |
 
-The embedding bill is primarily a one-time corpus indexing cost. Documents can
-be searched repeatedly after their vectors are stored. New online query
-embeddings still incur a small usage charge in the current Vertex hybrid setup.
+Hugging Face Jobs billed the L4 at $0.80 per hour and the L40S at $1.80 per
+hour. Gemini 3.8 Flash used the September 2026 introductory global rates of
+$0.75 per million input tokens and $3.75 per million output tokens. Values are
+workload estimates from recorded runtimes and token counts, not invoices.
 
-### Potential production inference cost
+[Hugging Face Jobs pricing](https://huggingface.co/docs/hub/jobs-pricing) | [Google Gemini pricing](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing) | [Vertex AI pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
 
-The 100 Gemini answers averaged approximately 2,815 input tokens and 57 output
-tokens. At the recorded global introductory price of $0.75 per million input
-tokens and $3.75 per million output tokens, that workload costs about **$2.33
-per 1,000 answers**. Google lists standard pricing from January 1, 2027 at $1.50
-and $7.50, which would make the same workload about **$4.65 per 1,000 answers**.
+### Potential generation cost at scale
 
-The best Qwen adapter averaged about 4.17 billed L40S seconds per hybrid answer
-in this experiment. At $1.80 per L40S hour, that is approximately **$2.09 per
-1,000 answers** when the GPU is used continuously at the measured rate.
+The 200 Gemini answers averaged about 3,026 input tokens and 58 output tokens.
+At the September 2026 introductory global rate, that prompt mix costs about
+**$2.49 per 1,000 answers**. Google's listed January 2027 rates double that
+projection to about **$4.97 per 1,000 answers**.
 
-| Monthly answers with the measured prompt mix | Gemini through Dec. 2026 | Gemini from Jan. 2027 | Qwen on a fully utilized rented L40S |
+The new Qwen adapter averaged 4.68 L40S seconds per answer with Vertex hybrid
+evidence. At $1.80 per L40S hour and full utilization, that is about **$2.34 per
+1,000 answers**. A rented L40S left running for 30 days costs about $1,296, so
+idle time can overwhelm any per-answer saving.
+
+| Monthly answers with this prompt mix | Gemini through 2026 | Gemini from 2027 | Qwen on a fully used rented L40S |
 |---|---:|---:|---:|
-| 1,000 | $2.33 | $4.65 | $2.09 |
-| 100,000 | $232.54 | $465.07 | $208.65 |
-| 1,000,000 | $2,325.36 | $4,650.72 | $2,086.50 |
+| 1,000 | $2.49 | $4.97 | $2.34 |
+| 100,000 | $249 | $497 | $234 |
+| 1,000,000 | $2,487 | $4,974 | $2,340 |
 
-These are workload projections, not quotes. They exclude retrieval, networking,
-storage, engineering labor, taxes, and idle GPU time. A dedicated L40S left on
-for a 30-day month would cost about $1,296 at $1.80 per hour, even if it served
-no requests. That makes utilization the deciding factor for rented local-model
-infrastructure.
+These projections exclude retrieval, networking, storage, taxes, engineering
+labor, and idle GPU time. On owned hardware, Qwen has no external per-token
+fee, but electricity, hardware purchase, maintenance, and capacity still cost
+money.
 
-On owned hardware, Qwen has no external per-token generation fee. Its marginal
-cost comes from electricity and hardware wear. This can provide substantial
-savings at high volume or when suitable hardware already exists, but the
-project does not claim that local inference is automatically cheaper for every
-traffic level.
+## Why local models matter
 
-Pricing assumptions are dated September 6, 2026. See the official
-[Google pricing page](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing)
-and [Hugging Face Jobs pricing](https://huggingface.co/docs/hub/jobs-pricing)
-before making a deployment decision.
+A local model can answer when a network is slow, unavailable, expensive, or
+prohibited. That includes flights, ships, field work, disaster response,
+remote clinics, mines, rural sites, and secure facilities. Documents and
+prompts can stay on controlled hardware, which helps with privacy, data
+residency, and predictable model availability. Teams can also inspect the
+weights, preserve an exact version, change the serving stack, and adapt the
+model to a narrow workflow.
 
-## Advantages of the local model
+Local operation still requires enough memory and compute. Hosted Gemini was
+faster in this experiment, and a rented GPU can cost more than an API when it
+sits idle. The practical advantage depends on connectivity, privacy, request
+volume, available hardware, and the quality of the local retriever.
 
-### Works without a reliable connection
+## Why the experiment matters
 
-Qwen and the BM25 index can run entirely on a local machine. That makes the
-system useful on flights, at field sites, aboard ships, in rural areas, during
-network outages, and in other places where internet access is slow, expensive,
-or unavailable. Answers do not wait for a round trip to a hosted API.
+Many model comparisons confound retrieval and generation. A model can appear
+weak because it received poor passages, or appear strong because it received
+better evidence. This project tests every generator over the same contexts and
+also compares the complete local and cloud systems. The design reveals that
+Qwen generation was competitive while the new embedding model was the failing
+component. A single end-to-end score would have hidden that distinction.
 
-The current Vertex hybrid configuration is not fully offline because each new
-query is embedded by Vertex AI. An offline deployment can use the tested BM25
-path, or replace the Vertex query embedding stage with a compatible local
-embedding model and validate that new retriever separately.
+The project also preserves an unsuccessful fine-tune. That result is useful to
+people reproducing the work because it shows where additional training can
+harm a RAG pipeline and why retrieval must be evaluated independently before
+answer generation.
 
-### Keeps document content under local control
+## Reproduce and inspect
 
-Retrieved passages and questions can remain on the user's device or private
-network. This is valuable for internal reports, legal material, operational
-manuals, research notes, and regulated data where sending context to a hosted
-generator may be undesirable.
+- [Third experiment procedure](LOCAL_RETRIEVER_EXPERIMENT.md)
+- [Second experiment procedure](HYBRID_EXPERIMENT.md)
+- `data/local_retriever_experiment/results/answer_quality_2x4.csv`
+- `data/local_retriever_experiment/results/retrieval_comparison.csv`
+- `data/local_retriever_experiment/results/paired_comparisons.csv`
+- `data/local_retriever_experiment/results/category_results.csv`
+- `data/local_retriever_experiment/human_review/`
 
-### Removes per-token generation billing
-
-An owned local deployment can answer more questions without accumulating a new
-API charge for every prompt and completion. Costs become hardware capacity,
-power, and maintenance rather than a token meter.
-
-### Provides version and availability control
-
-The exact base model and LoRA adapter can be archived and redeployed. A provider
-cannot silently change that local checkpoint, remove it from an API, reduce a
-quota, or make it unavailable during an outage.
-
-### Supports targeted customization
-
-The LoRA adapter is small compared with the base model and can be retrained for
-a specific answer format, citation policy, vocabulary, or domain. This project
-also shows when retraining is unnecessary, which can save time and compute.
-
-### Enables edge and private-network products
-
-The model can be packaged with a local corpus for laptops, workstations,
-on-premises servers, mobile field stations, and disconnected private networks.
-It can also serve as a fallback when a hosted model is unavailable.
-
-## Tradeoffs
-
-- Gemini had the highest observed hybrid answer score, 82.0% versus 79.5% for
-  the best local setup.
-- Local inference needs sufficient memory, storage, power, and thermal capacity.
-- A laptop deployment may be slower and consume significant battery power.
-- The operator is responsible for model updates, security patches, monitoring,
-  and capacity planning.
-- Fifty questions provide useful paired evidence but cannot resolve small
-  quality differences precisely.
-- The two judges were models. Blinded human-review sheets are included, but
-  human scoring has not been completed.
-- Vertex AI does not expose an immutable revision for
-  `gemini-embedding-001`. The project records the date, settings, and checksums
-  instead.
-
-## Repository structure
-
-| Path | Purpose |
-|---|---|
-| `scripts/` | Corpus, retrieval, generation, scoring, and reporting commands |
-| `cloud/` | Hugging Face GPU training, inference, and judging entry points |
-| `tests/` | Determinism, split, fusion, metric, and clipping tests |
-| `FINDINGS.md` | Final interpretation and all major results |
-| `HYBRID_EXPERIMENT.md` | Reproduction stages and frozen experiment settings |
-| `FINETUNING_RESEARCH.md` | Fine-tuning design research and rationale |
-| `data/` | Generated local artifacts, excluded from Git |
-
-## Reproduce the project
-
-Create the environment:
-
-```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
-The downloader uses `GOVINFO_API_KEY` from the environment or the ignored
-`.env` file. Vertex stages require an authorized Google Cloud service account.
-Hugging Face jobs receive `HF_TOKEN` only through the encrypted Jobs secret
-mechanism. Never commit credentials.
-
-Run a small GovInfo download pilot:
-
-```sh
-.venv/bin/python scripts/download_govinfo.py --target 10
-```
-
-The complete commands for split-isolated Vertex indexing, fusion selection,
-benchmark sealing, SFT materialization, training, inference, judging, and
-reporting are documented in [HYBRID_EXPERIMENT.md](HYBRID_EXPERIMENT.md).
-
-## Published artifacts
-
-- [GitHub repository](https://github.com/vamsee9201/lean-rag)
-- [BM25-trained Qwen3.5 9B adapter](https://huggingface.co/vamsee9201/qwen35-9b-rag-lora)
-- [Hybrid-trained Qwen3.5 9B adapter and reproducibility bundle](https://huggingface.co/vamsee9201/qwen35-9b-hybrid-rag-lora)
-- [GovInfo API documentation](https://github.com/usgpo/api)
-
-The public bundle includes the sealed benchmark, checksums, retrieval metrics,
-complete answer-quality tables, paired effects, cost data, and blank blinded
-human-review sheets. Credentials and generated private working data remain
-outside the repository.
+Human review sheets are prepared but not completed. Until they are completed,
+the answer-quality findings should be described as automated, dual-model judge
+results. The benchmark has 50 questions, so modest differences remain
+uncertain even with paired evaluation.
