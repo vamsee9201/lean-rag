@@ -6,21 +6,17 @@ pipelines once, the experiment tests every generator with every retriever. This
 separates the quality of the language model from the quality of the evidence it
 receives.
 
-The completed experiment crosses four retrieval setups with five generator
-states. The retrievers are pure BM25, BM25 plus Vertex embeddings, BM25 plus
-untuned local GTE embeddings, and BM25 plus fine-tuned local GTE embeddings.
-The generators are Gemini 3.8 Flash, base Qwen3.5 9B, two earlier Qwen adapters,
-and a fresh Qwen adapter trained for the new local retriever. Every generator
-answered the same 50 sealed questions using the exact same five passages within
-each retrieval setup.
+The completed experiment contains **20 combinations**. Each combination pairs
+one retrieval system with one answer generator. Every generator was tested with
+every retriever, and every combination answered the same 50 sealed questions.
+Within a retrieval setup, the generators received the exact same passages in
+the same order.
 
-This 4 by 5 design produced 1,000 answers and lets us measure four things
-independently: whether embedding fine-tuning improves local retrieval, whether
-Qwen matches Gemini with identical evidence, whether Qwen fine-tuning improves
-generation, and how the complete local stack compares with the complete cloud
-stack. Two blinded model judges rated every answer, producing 2,000 ratings.
-The analysis uses 10,000 paired bootstrap samples, and human review sheets are
-included for independent verification.
+The 20 combinations produced 1,000 answers. This structure lets us determine
+whether a result came from retrieval, answer generation, fine-tuning, or the
+complete system. Two blinded model judges rated every answer, producing 2,000
+ratings. The analysis uses 10,000 paired bootstrap samples, and human review
+sheets are included for independent verification.
 
 [Complete findings](FINDINGS.md) | [Third experiment reproduction guide](LOCAL_RETRIEVER_EXPERIMENT.md) | [Qwen adapter](https://huggingface.co/vamsee9201/qwen35-9b-local-hybrid-rag-lora) | [GTE retriever](https://huggingface.co/vamsee9201/gte-modernbert-govinfo-retriever)
 
