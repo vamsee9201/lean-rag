@@ -1,13 +1,26 @@
 # Lean RAG
 
-Lean RAG tests how far a fully controllable local RAG system can go over public
-GovInfo documents. The project separates retrieval quality from answer
-generation, then measures what happens when both a local embedding model and a
-local 9 billion parameter language model are fine-tuned.
+Lean RAG tests whether a fully local RAG system can match a cloud RAG system on
+questions about public GovInfo documents. Instead of comparing two fixed
+pipelines once, the experiment tests every generator with every retriever. This
+separates the quality of the language model from the quality of the evidence it
+receives.
 
-The third experiment is complete. It contains 1,000 answers from 20 matched
-cells, 2,000 blinded model ratings, 10,000-sample paired bootstrap intervals,
-and three prepared human review sheets.
+The completed experiment crosses four retrieval setups with five generator
+states. The retrievers are pure BM25, BM25 plus Vertex embeddings, BM25 plus
+untuned local GTE embeddings, and BM25 plus fine-tuned local GTE embeddings.
+The generators are Gemini 3.8 Flash, base Qwen3.5 9B, two earlier Qwen adapters,
+and a fresh Qwen adapter trained for the new local retriever. Every generator
+answered the same 50 sealed questions using the exact same five passages within
+each retrieval setup.
+
+This 4 by 5 design produced 1,000 answers and lets us measure four things
+independently: whether embedding fine-tuning improves local retrieval, whether
+Qwen matches Gemini with identical evidence, whether Qwen fine-tuning improves
+generation, and how the complete local stack compares with the complete cloud
+stack. Two blinded model judges rated every answer, producing 2,000 ratings.
+The analysis uses 10,000 paired bootstrap samples, and human review sheets are
+included for independent verification.
 
 [Complete findings](FINDINGS.md) | [Third experiment reproduction guide](LOCAL_RETRIEVER_EXPERIMENT.md) | [Qwen adapter](https://huggingface.co/vamsee9201/qwen35-9b-local-hybrid-rag-lora) | [GTE retriever](https://huggingface.co/vamsee9201/gte-modernbert-govinfo-retriever)
 
