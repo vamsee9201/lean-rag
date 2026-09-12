@@ -161,21 +161,22 @@ labor, and idle GPU time. On owned hardware, Qwen has no external per-token
 fee, but electricity, hardware purchase, maintenance, and capacity still cost
 money.
 
-## Local-first recommendation
+## Recommended local setup
 
-Use **untuned GTE plus BM25 hybrid retrieval with the new Qwen adapter** as the
-current fully local system. Treat Vertex hybrid as an experimental retrieval
-ceiling that demonstrates what the Qwen generator can do when supplied with
-stronger passages. Continue improving the local embedder without retraining
-Qwen unless a new evaluation reveals a generator-specific problem.
+The strongest fully local configuration tested is **untuned GTE plus BM25
+hybrid retrieval with the new Qwen adapter**. It scored 74.5% and can run
+without Vertex embeddings or Gemini generation. The 81.0% result from the same
+Qwen adapter with Vertex hybrid evidence shows that the generator can perform
+at hosted-model quality when retrieval supplies stronger passages.
 
-This gives the project a clear result and next step:
+## Remaining research opportunity
 
-- local Qwen generation reached hosted-model quality;
-- the fully local baseline is already useful at 74.5%;
-- embedding fine-tuning is the remaining bottleneck; and
-- better local retrieval can close the end-to-end gap without replacing the
-  local generator.
+The results locate the remaining local-system gap in retrieval. The current
+fine-tuned embedder reduced retrieval quality, while the untuned local embedder
+provided the stronger fully local baseline. Future research can test better
+positive passages, training losses, and hard-negative selection while keeping
+the successful Qwen generator fixed. These are opportunities to improve on the
+completed experiment, not steps required to reproduce its reported results.
 
 ## Why local models matter
 
