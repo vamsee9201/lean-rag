@@ -13,22 +13,31 @@ measured independently before complete local and cloud systems are compared.
 
 ## Current result
 
-The latest fully local stack uses **BM25 plus fine-tuned
-Qwen3-Embedding-8B**, followed by a **fine-tuned Qwen3.5 9B** answer model. It
-scored **78.0%**, compared with **78.5%** for BM25 plus Vertex embeddings and
-Gemini 3.8 Flash on the same 50 sealed questions.
+After **six completed experimental stages**, the project produced a RAG system
+whose retrieval and answer generation can both be self-hosted. It uses **BM25
+plus fine-tuned Qwen3-Embedding-8B** to find evidence and a **fine-tuned
+Qwen3.5 9B** model to answer from that evidence. It requires no Vertex
+embedding call, Gemini generation call, or managed vector database at runtime.
 
-That makes the systems comparable in observed automated answer quality on this
-benchmark. The paired 95% confidence interval for local minus cloud was
-**-10.5 to +10.0 percentage points**, so the result does not prove statistical
-equivalence. A larger test and completed human review are needed for that
-claim.
+The newly trained end-to-end local stack scored **78.0%**, compared with
+**78.5%** for the cloud reference of BM25 plus Vertex embeddings and Gemini
+3.8 Flash. The strongest fully local combination in the same matrix, using
+the tuned Qwen3 retriever with the previous fine-tuned Qwen adapter, scored
+**79.0%**. In observed automated answer quality, the best local and cloud
+systems were therefore within half a percentage point of each other.
 
-The clearest improvement was retrieval. Fine-tuning Qwen3-Embedding-8B raised
-local hybrid all-gold recall@5 from **66% to 82%**. Vertex hybrid reached
-**76%** on the same sealed test. The complete local stack also achieved
-**83% exact citation recall**, compared with **54%** for Vertex hybrid plus
-Gemini.
+Retrieval was the decisive improvement. Fine-tuning Qwen3-Embedding-8B raised
+local hybrid all-gold recall@5 from **66% to 82%**, exceeding Vertex hybrid's
+**76%** on the same sealed test. The newly trained complete local stack also
+achieved **83% exact document-and-page citation recall**, compared with **54%**
+for Vertex hybrid plus Gemini.
+
+These results make the local system highly competitive on this workload. The
+benchmark contains 50 sealed questions, so its paired 95% interval of
+**-10.5 to +10.0 points** is still too wide to prove statistical equivalence.
+The correct conclusion is that local and cloud performance was comparable in
+this experiment, with a larger benchmark and human review needed to measure a
+small difference precisely.
 
 [Complete findings](FINDINGS.md) | [Latest experiment](QWEN_EMBEDDING_EXPERIMENT.md) | [Reproduction guide](QWEN_EMBEDDING_REPRODUCTION.md)
 
@@ -210,41 +219,63 @@ managed vector database is used.
 | Previous local-hybrid Qwen adapter | 73.0% | 75.5% | 61.0% | 67.0% | 79.0% |
 | Fresh Qwen-embedding-context adapter | 74.5% | 70.0% | 63.5% | 68.5% | **78.0%** |
 
-The complete local stack scored 78.0%, versus 78.5% for Vertex hybrid plus
-Gemini. The observed half-point difference is small, but the paired 95%
-interval from -10.5 to +10.0 points is too wide to establish equivalence. With
-identical tuned-local evidence, the fresh Qwen adapter scored 78.0% and Gemini
-scored 80.5%. The new generator adapter worked, but it did not establish an
-advantage over the previous adapter's 79.0% on the same evidence.
+There are two complementary comparisons in this table. The **end-to-end
+comparison** tests complete deployable systems: the newly trained local stack
+scored 78.0%, while Vertex hybrid plus Gemini scored 78.5%. The **generator-only
+comparison** holds retrieval fixed: with the same tuned-local passages, the
+fresh Qwen adapter scored 78.0% and Gemini scored 80.5%. This shows that the
+local retriever became strong enough to support either generator, while the
+new answer-model fine-tune did not clearly improve on the previous Qwen
+adapter's 79.0% under those same passages.
+
+The practical result is stronger than any single row. The newest retriever
+substantially improved evidence quality, both fine-tuned Qwen adapters remained
+competitive, and the strongest fully local configuration reached 79.0%. The
+remaining differences among the top systems are small relative to the
+uncertainty of a 50-question benchmark.
 
 The complete local stack reached 83% exact document-and-page citation recall,
 versus 54% for Vertex hybrid plus Gemini. Both blinded judges supplied all
 2,000 answer and citation ratings. Human review sheets are prepared but have
 not been scored.
 
-The latest experiment cost approximately **$26.64**, including failed
-and repeated development jobs, below its $28 cap. This is research cost, not a
-steady-state cost per production answer.
+The latest experiment cost approximately **$26.64**, below its $28 cap. This
+is research cost, not a steady-state cost per production answer.
 
 [Complete experiment](QWEN_EMBEDDING_EXPERIMENT.md) | [Reproduction guide](QWEN_EMBEDDING_REPRODUCTION.md) | [Embedding adapter](https://huggingface.co/vamsee9201/qwen3-embedding-8b-govinfo-retriever) | [Answer adapter](https://huggingface.co/vamsee9201/qwen35-9b-qwen-embedding-rag-lora)
 
 ## What the experiments show
 
-The local generator became competitive before the retrieval system did. The
-BM25 fine-tune brought Qwen3.5 9B to 84% versus Gemini's 85% with identical
-evidence. Vertex hybrid retrieval then showed that better passages helped both
-local and hosted generators.
+The project progressed through **six completed stages**:
 
-The two local embedding experiments produced opposite results. Fine-tuning GTE
-hurt retrieval, while fine-tuning Qwen3-Embedding-8B improved it substantially.
-Domain training is not automatically beneficial; every retriever must be
-measured against its untuned base on a sealed benchmark.
+1. The five-model BM25 pilot identified Qwen3.5 9B as the strongest local
+   generator and exposed weak cross-document retrieval and citation behavior.
+2. The 250-question comparison showed that Qwen and Gemini were nearly tied on
+   answerable questions, while Gemini abstained better when evidence was absent.
+3. Fine-tuning Qwen for grounded RAG answers raised it to **84%**, versus
+   Gemini's **85%**, with identical BM25 evidence.
+4. Vertex hybrid retrieval demonstrated that stronger evidence improved the
+   complete pipeline and that the existing Qwen adapter transferred well.
+5. The first local embedding fine-tune, using GTE, reduced retrieval quality.
+   Preserving this negative result showed that domain tuning alone is not
+   enough.
+6. Fine-tuning Qwen3-Embedding-8B solved that retrieval problem, raising local
+   hybrid recall to **82%** and bringing the complete local stack to **78.0%**
+   against the cloud reference's **78.5%**.
 
-The newest result closes most of the observed complete-system gap. The fully
-local Qwen3 retriever plus Qwen generator scored 78.0%, while the cloud
-reference scored 78.5%. This is strong evidence that a compact self-hostable
-RAG stack can be useful on this workload, while the statistical interval and
-unfinished human review prevent an equivalence claim.
+The progression matters. The local answer model became competitive first, but
+the complete system still depended on cloud-quality retrieval. The final
+Qwen3 embedding experiment closed that gap: local retrieval exceeded Vertex
+hybrid recall on the sealed benchmark, and the best fully local answer score
+reached **79.0%**. The project moved from a BM25-only baseline with clear
+retrieval failures to a self-hostable hybrid system whose observed quality is
+comparable to the Gemini and Vertex reference.
+
+The experiments also show that fine-tuning must be validated component by
+component. GTE training hurt retrieval, Qwen3 embedding training improved it,
+and retraining the answer model for every new retriever did not automatically
+beat an existing strong adapter. Controlled matrices made those distinctions
+visible instead of hiding them inside one end-to-end score.
 
 ## Why a local RAG system matters
 
