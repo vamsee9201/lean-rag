@@ -277,6 +277,37 @@ and retraining the answer model for every new retriever did not automatically
 beat an existing strong adapter. Controlled matrices made those distinctions
 visible instead of hiding them inside one end-to-end score.
 
+## The final local RAG system
+
+The final system is a complete locally controlled RAG pipeline, rather than a
+standalone local language model:
+
+> **Local BM25 search + fine-tuned Qwen3-Embedding-8B + reciprocal-rank
+> fusion + fine-tuned Qwen3.5 9B answer model**
+
+BM25 finds passages with strong keyword matches. The fine-tuned embedding
+model finds passages that are semantically related even when they use different
+wording. Reciprocal-rank fusion combines both rankings, removes duplicate
+chunks, and sends the top five passages to the fine-tuned Qwen answer model.
+The generator then answers from that evidence and cites the supporting document
+and page.
+
+This architecture produced the project's ultimate local result. The newly
+trained end-to-end local stack scored **78.0%**, compared with **78.5%** for
+Vertex hybrid retrieval plus Gemini 3.8 Flash on the same 50 sealed questions.
+The strongest fully local combination, which paired the same fine-tuned local
+retriever with the best existing fine-tuned Qwen adapter, scored **79.0%**.
+The tuned local hybrid retriever achieved **82% all-gold recall@5**, compared
+with **76%** for Vertex hybrid, and the new end-to-end local stack achieved
+**83% exact citation recall**, compared with **54%** for the cloud reference.
+
+The 95% confidence interval is still too wide to claim statistical equivalence,
+but the observed results show that the complete local system reached the same
+practical quality range as the Gemini and Vertex reference on this benchmark.
+At inference time, the local architecture does not require Gemini, Vertex
+embeddings, or a managed vector database. Its embedding model, search index,
+retrieval fusion, and answer model can all run on self-hosted infrastructure.
+
 ## Why a local RAG system matters
 
 Local RAG is necessary when policy, regulation, contractual obligations, or
