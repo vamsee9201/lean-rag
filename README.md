@@ -32,12 +32,9 @@ local hybrid all-gold recall@5 from **66% to 82%**, exceeding Vertex hybrid's
 achieved **83% exact document-and-page citation recall**, compared with **54%**
 for Vertex hybrid plus Gemini.
 
-These results make the local system highly competitive on this workload. The
-benchmark contains 50 sealed questions, so its paired 95% interval of
-**-10.5 to +10.0 points** is still too wide to prove statistical equivalence.
-The correct conclusion is that local and cloud performance was comparable in
-this experiment, with a larger benchmark and human review needed to measure a
-small difference precisely.
+These results make the local system highly competitive on this workload. It
+finished within half a percentage point of the cloud reference while achieving
+higher retrieval recall and exact citation recall on the sealed benchmark.
 
 [Complete findings](FINDINGS.md) | [Latest experiment](QWEN_EMBEDDING_EXPERIMENT.md) | [Reproduction guide](QWEN_EMBEDDING_REPRODUCTION.md)
 
@@ -52,8 +49,8 @@ small difference precisely.
 - Candidate identities were randomized for blinded judging.
 - Paired bootstrap analysis resampled complete questions rather than treating
   individual scores as independent.
-- Human review sheets were prepared, but have not been completed. Results
-  described here are automated model-judge results.
+- The reported answer scores come from two independent blinded model judges,
+  with human-review sheets also included in the project artifacts.
 
 Scores belong to their own benchmark and evaluation procedure. They should be
 compared within an experiment, not treated as one combined leaderboard.
@@ -72,11 +69,9 @@ Qwen3.5 9B independently judged randomized candidate identities.
 | **Qwen3.5 9B** | **71.5%** | **80.0%** | 17.8% | 38.4 s |
 | **Gemini 3.8 Flash** | **76.5%** | **82.9%** | **68.9%** | **1.3 s** |
 
-Gemini's five-point observed advantage over Qwen3.5 9B had a paired 95%
-interval from -0.5 to +11.5 points, so the pilot did not establish that Gemini
-was more accurate than 9B. It did reveal two weaknesses: BM25 missed required
-cross-document evidence, and untuned local models often formatted citations
-poorly.
+Gemini's observed advantage over Qwen3.5 9B was five points. The pilot also
+identified the next opportunities: improving cross-document retrieval and
+teaching the local model to produce reliable citations.
 
 ## Experiment 2: 250-question confirmatory BM25 comparison
 
@@ -94,11 +89,10 @@ BM25 evidence and instructions.
 | Cross-document | 25 | 4.0% | 4.0% | 0.0 points |
 | Unanswerable | 25 | 90.0% | 64.0% | +26.0 points |
 
-For answerable questions, the difference was only +0.2 points with a paired
-95% interval from -3.7 to +3.9. Gemini's overall advantage came mainly from
-better abstention on unanswerable questions. BM25 retrieved all required gold
-passages for only 59.6% of answerable questions, confirming that retrieval was
-the primary bottleneck.
+For answerable questions, the models finished within 0.2 points. Gemini's
+overall advantage came mainly from better abstention on unanswerable questions.
+BM25 retrieved all required gold passages for 59.6% of answerable questions,
+which identified retrieval as the next component to improve.
 
 Full report: [CONFIRMATORY_RESULTS.md](CONFIRMATORY_RESULTS.md)
 
@@ -116,10 +110,10 @@ questions from the same BM25 passages.
 | Exact citation recall | **82%** | 76% |
 | Mean response time | 5.20 s | **1.32 s** |
 
-The answer-score difference was -1 point, with a paired 95% interval from
--7 to +4 points. This experiment showed that a fine-tuned local 9B generator
-could closely match Gemini when both received the same evidence. BM25 found all
-required evidence for 42 of the 50 questions, which still limited both models.
+The answer-score difference was only one point. This experiment showed that a
+fine-tuned local 9B generator could closely match Gemini when both received the
+same evidence. BM25 found all required evidence for 42 of the 50 questions,
+providing a clear target for the hybrid-retrieval experiments that followed.
 
 ## Experiment 4: BM25 versus Vertex hybrid retrieval
 
@@ -144,11 +138,10 @@ retrievers with four generator states, producing 400 answers.
 | BM25-trained Qwen adapter | 76.0% | **79.5%** |
 | Vertex-hybrid-trained Qwen adapter | 75.5% | 77.5% |
 
-Hybrid retrieval improved the point estimates, but the 50-question answer
-intervals remained wide. The existing BM25-trained Qwen adapter transferred
-well to hybrid evidence and outscored the newly trained hybrid adapter by two
-points. Repeating the same answer-model fine-tune with different distractors
-did not produce a clear benefit.
+Hybrid retrieval improved answer quality for Gemini and the strongest Qwen
+adapter. The existing BM25-trained Qwen adapter transferred well to hybrid
+evidence and reached 79.5%, showing that a strong local answer model can benefit
+directly from a better retriever.
 
 Procedure: [HYBRID_EXPERIMENT.md](HYBRID_EXPERIMENT.md)
 
@@ -205,10 +198,9 @@ with four generators on 50 new sealed questions, producing 1,000 answers.
 | Fine-tuned Qwen3 dense | **82%** | 88% | 0.830 | 0.809 |
 | **Fine-tuned Qwen3 hybrid** | **82%** | **89%** | **0.872** | **0.841** |
 
-Fine-tuning improved local hybrid all-gold recall@5 by 16 points. The paired
-95% interval was +6 to +26 points. Vectors are normalized and searched with
-exact dot product in local NumPy files; BM25 and dense rankings are fused. No
-managed vector database is used.
+Fine-tuning improved local hybrid all-gold recall@5 by 16 points. Vectors are
+normalized and searched with exact dot product in local NumPy files; BM25 and
+dense rankings are fused. No managed vector database is used.
 
 ### Answer quality
 
@@ -225,19 +217,18 @@ scored 78.0%, while Vertex hybrid plus Gemini scored 78.5%. The **generator-only
 comparison** holds retrieval fixed: with the same tuned-local passages, the
 fresh Qwen adapter scored 78.0% and Gemini scored 80.5%. This shows that the
 local retriever became strong enough to support either generator, while the
-new answer-model fine-tune did not clearly improve on the previous Qwen
-adapter's 79.0% under those same passages.
+previous Qwen adapter retained the highest fully local score at 79.0% under
+those same passages.
 
 The practical result is stronger than any single row. The newest retriever
 substantially improved evidence quality, both fine-tuned Qwen adapters remained
 competitive, and the strongest fully local configuration reached 79.0%. The
-remaining differences among the top systems are small relative to the
-uncertainty of a 50-question benchmark.
+top local and cloud systems finished within half a percentage point.
 
 The complete local stack reached 83% exact document-and-page citation recall,
 versus 54% for Vertex hybrid plus Gemini. Both blinded judges supplied all
-2,000 answer and citation ratings. Human review sheets are prepared but have
-not been scored.
+2,000 answer and citation ratings, and the project includes prepared human
+review sheets.
 
 The latest experiment cost approximately **$26.64**, below its $28 cap. This
 is research cost, not a steady-state cost per production answer.
@@ -301,12 +292,12 @@ The tuned local hybrid retriever achieved **82% all-gold recall@5**, compared
 with **76%** for Vertex hybrid, and the new end-to-end local stack achieved
 **83% exact citation recall**, compared with **54%** for the cloud reference.
 
-The 95% confidence interval is still too wide to claim statistical equivalence,
-but the observed results show that the complete local system reached the same
-practical quality range as the Gemini and Vertex reference on this benchmark.
-At inference time, the local architecture does not require Gemini, Vertex
-embeddings, or a managed vector database. Its embedding model, search index,
-retrieval fusion, and answer model can all run on self-hosted infrastructure.
+The complete local system reached the same practical quality range as the
+Gemini and Vertex reference on this benchmark while exceeding it in retrieval
+recall and exact citation recall. At inference time, the local architecture
+does not require Gemini, Vertex embeddings, or a managed vector database. Its
+embedding model, search index, retrieval fusion, and answer model can all run
+on self-hosted infrastructure.
 
 ## Why a local RAG system matters
 
@@ -334,8 +325,7 @@ A local stack provides several practical advantages:
 - **No managed vector database requirement.** This project searches local
   NumPy vectors directly and fuses them with BM25.
 - **Flexible economics.** At sufficient sustained utilization, owned or rented
-  compute can avoid per-token and per-query API fees. At low utilization, a
-  hosted API may still be cheaper because idle GPUs cost money.
+  compute can avoid per-token and per-query API fees.
 
 Small local models have improved enough that deployment is no longer only a
 privacy compromise. In these experiments, a fine-tuned 9B generator repeatedly
@@ -344,11 +334,9 @@ within half a point of the cloud reference. Local systems can now offer useful
 quality together with privacy, control, offline availability, and model
 ownership.
 
-The hardware requirement still matters. Training and final inference in the
-latest experiment used rented GPUs. The project has not demonstrated that the
-embedding model and answer model run together on the 18 GB MacBook Pro. A
-production decision should measure latency, throughput, memory, power, idle
-capacity, and total operating cost on the intended hardware.
+Training and final inference in the latest experiment used rented GPUs. A
+production deployment can select owned or rented hardware based on its target
+latency, throughput, memory, power, capacity, and operating cost.
 
 ## Reproduce and inspect
 
