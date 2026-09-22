@@ -47,13 +47,13 @@ def main() -> None:
         for rating in ratings:
             if (rating.get("answer_score") not in {0, 1, 2}
                     or rating.get("citation_score") not in {0, 1}
-                    or rating.get("unsupported_claim") not in {0, 1}):
+                    or rating.get("unsupported_claim") not in {0, 1, None}):
                 raise ValueError(f"Invalid score for {mapping['question_id']}: {rating}")
             identity = mapping["labels"][rating["id"]]
             output.append({
                 **identity, "question_id": mapping["question_id"], "judge_model": "qwen/qwen3.5-9b-base",
                 "answer_score": rating["answer_score"], "citation_score": rating["citation_score"],
-                "unsupported_claim": rating["unsupported_claim"],
+                "unsupported_claim": rating.get("unsupported_claim"),
                 "rationale": rating.get("rationale", ""),
             })
     if seen_evaluations != set(mappings_by_id):
@@ -63,7 +63,11 @@ def main() -> None:
         raise ValueError(f"Unblinded Qwen scores are not a complete {args.expected_scores}-record matrix")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in output))
-    print(json.dumps({"scores": len(output)}, indent=2))
+    print(json.dumps({
+        "scores": len(output),
+        "unsupported_claim_labels": sum(row["unsupported_claim"] is not None for row in output),
+        "missing_unsupported_claim_labels": sum(row["unsupported_claim"] is None for row in output),
+    }, indent=2))
 
 
 if __name__ == "__main__":

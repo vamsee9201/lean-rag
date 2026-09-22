@@ -1,5 +1,93 @@
 # RAG model comparison: findings and recommendation
 
+## Qwen3 embedding experiment: September 19, 2026
+
+The fourth experiment is complete. It trained a Qwen3-Embedding-8B retriever,
+built disjoint local dense indexes, and trained a fresh Qwen3.5-9B RAG adapter
+from the original base. Five retrievers crossed with four generators on 50 new
+sealed GovInfo questions, producing 1,000 matched answers. Gemini 3.8 Flash
+and untuned Qwen3.5 9B independently rated all answers under blinded
+identities. All 2,000 answer and citation ratings are present. Their weighted
+answer-score agreement was 0.899. The primary answer score is their normalized
+mean.
+
+### Retrieval result
+
+Fine-tuning Qwen3-Embedding-8B raised local hybrid all-gold recall@5 from 66%
+to 82%. Vertex hybrid reached 76% on these same questions. The paired
+tuned-minus-untuned local hybrid improvement was 16 percentage points, with a
+10,000-resample 95% bootstrap interval of +6 to +26 points. Both the tuned
+Qwen dense and tuned Qwen hybrid reached 82% all-gold recall. Hybrid fusion
+improved mean passage recall from 88% to 89% and nDCG@5 from 0.809 to 0.841.
+The retriever was selected on validation data before the sealed test was
+retrieved. These metrics use exact gold document and page matches.
+
+### Complete answer comparison
+
+| Generator | BM25 | Vertex hybrid | Untuned Qwen dense | Untuned Qwen hybrid | Tuned Qwen hybrid |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gemini 3.8 Flash | 74.5% | 78.5% | 62.5% | 68.0% | **80.5%** |
+| Base Qwen3.5 9B | 68.5% | 67.0% | 58.0% | 65.0% | 73.5% |
+| Prior local-hybrid Qwen adapter | 73.0% | 75.5% | 61.0% | 67.0% | 79.0% |
+| Fresh Qwen-embedding-context adapter | 74.5% | 70.0% | 63.5% | 68.5% | **78.0%** |
+
+The complete local stack scored 78.0%, versus 78.5% for Vertex hybrid plus
+Gemini. The paired difference was -0.5 points with a two-sided 95% bootstrap
+interval from -10.5 to +10.0 points. That is a close point estimate, not
+evidence of equivalence. With identical tuned local evidence, the fresh Qwen
+adapter scored 78.0% and Gemini scored 80.5%, a -2.5-point paired difference
+with a -11.5 to +6.5 point interval. The one-sided lower bound was -10.0
+points, below the predefined -5-point non-inferiority margin. This benchmark
+did not establish non-inferiority or superiority.
+
+The fresh Qwen adapter exceeded base Qwen by 4.5 observed points on identical
+tuned evidence, but the interval was -1.0 to +10.5 points. It was one point
+below the prior local-hybrid adapter, with an interval from -6.0 to +3.5.
+The new fine-tune completed, its 20-response reload test passed, and its
+weights are preserved. The available 50 questions do not establish that this
+additional generator fine-tune beats the previous adapter. Fine-tuning the
+embedding model, by contrast, produced a clear retrieval improvement on this
+sealed set.
+
+Exact document-and-page citation recall was 83% for the fully local stack,
+versus 54% for Vertex plus Gemini. Under identical tuned local retrieval,
+Gemini had 56% citation recall. This is a meaningful observed citation
+difference, but answer quality is still subject to the intervals above. The
+fresh Qwen adapter also scored 78% under the local retriever while Gemini
+scored 80.5% under that same retriever; both judges' separate scores and the
+category results are in the machine-readable report.
+
+The 50 questions are all answerable, so correct abstention on unanswerable
+queries is not measured. The Qwen judge omitted the auxiliary unsupported-claim
+flag in 14 ratings. Those 14 labels remain missing; unsupported-claim rates
+use the other 1,986 available labels and show cell-level denominators. Human
+review sheets are prepared but have not been completed. The Qwen judge here
+used full BF16 weights on a cloud GPU; the prior experiment's local MLX judge
+used 4-bit weights.
+
+### Cost and practical meaning
+
+Authenticated Hugging Face billing shows $25.75651 for the GPU jobs, including
+failed and repeated development runs. Recorded Gemini usage gives an estimated
+$0.62770 for answers and $0.25203 for judging. The total is about **$26.64**,
+below the approved $28 cap. This is experimental spending, not the cost of
+serving 1,000 production queries. A self-hosted service must also account for
+GPU idle time, query embedding, indexing, storage, power, and operations.
+
+The new local retriever is a stronger tested option than the earlier GTE
+retriever on this benchmark. The local stack is portable and keeps queries and
+documents on controlled infrastructure when deployed, although this
+experiment's training, indexing, and answer generation used rented GPUs. An
+end-to-end offline test on the target device is still needed before claiming
+operation on the project's 18 GB laptop without connectivity.
+
+[Fourth-experiment protocol and complete results](QWEN_EMBEDDING_EXPERIMENT.md)
+| [Reproduction stages](QWEN_EMBEDDING_REPRODUCTION.md)
+| [Embedding adapter](https://huggingface.co/vamsee9201/qwen3-embedding-8b-govinfo-retriever)
+| [Generator adapter](https://huggingface.co/vamsee9201/qwen35-9b-qwen-embedding-rag-lora)
+
+The completed third experiment follows as a separate historical result.
+
 ## Fine-tuned local retriever experiment: September 8, 2026
 
 The third experiment is complete. It used 90 previously unused searchable
@@ -97,16 +185,15 @@ for L4 embedding work, $5.04 for L40S Qwen training, inference, and judging,
 $0.59 for Vertex document embeddings, and $0.83 for Gemini generation and
 judging. The experiment remained below its $15 hard budget.
 
-The project recommendation is **untuned GTE hybrid retrieval plus the new Qwen
-adapter**. This fully local combination scored 74.5% and avoids hosted
+The third experiment's local recommendation was **untuned GTE hybrid retrieval
+plus its new Qwen adapter**. This fully local combination scored 74.5% and avoids hosted
 embeddings and generation at runtime. Vertex hybrid plus Qwen remains the
-experimental ceiling: its 81.0% result shows that the local generator is ready
-and that closing the remaining end-to-end gap depends on local retrieval.
+third experiment's observed ceiling: its 81.0% result showed that the local
+generator was capable when retrieval supplied stronger passages.
 
-The next experiment should improve the GTE training examples, positive-passage
-construction, loss, and hard-negative curriculum. Qwen should remain frozen so
-the retrieval change can be measured cleanly. The current tuned GTE checkpoint
-should be preserved as a reproducible negative result rather than deployed.
+That result motivated the later Qwen3 embedding experiment reported above.
+The tuned GTE checkpoint is preserved as a reproducible negative result rather
+than recommended for deployment.
 
 Local deployment remains valuable where connectivity is unreliable or absent,
 including flights, ships, field sites, remote clinics, rural locations, and

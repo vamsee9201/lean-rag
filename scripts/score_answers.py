@@ -18,6 +18,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--questions", type=Path, default=ROOT / "data" / "benchmark" / "questions.jsonl")
     parser.add_argument("--answers", type=Path, default=ROOT / "data" / "runs" / "answers.jsonl")
     parser.add_argument("--output", type=Path, default=ROOT / "data" / "runs" / "automatic_scores.jsonl")
+    parser.add_argument("--exact-citations", action="store_true")
+    parser.add_argument("--retrieval", type=Path, help="Retrieval records for exact citation validity")
     return parser.parse_args()
 
 
@@ -50,16 +52,38 @@ def abstained(answer: str) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
-def score(answer_record: dict, question: dict) -> dict:
+def exact_citations(answer: str) -> list[tuple[str, int]]:
+    return [
+        (match.group(1).casefold(), int(match.group(2)))
+        for match in re.finditer(r"\[([^\[\]\s]+)\s+p\.(\d+)\]", answer, re.I)
+    ]
+
+
+def score(
+    answer_record: dict, question: dict, *, exact: bool = False,
+    context: list[dict] | None = None,
+) -> dict:
     answer = answer_record["answer"]
     answer_tokens = tokens(answer)
     reference_tokens = tokens(question["reference_answer"])
     reference_hit = bool(reference_tokens) and " ".join(reference_tokens) in " ".join(answer_tokens)
+    citations = exact_citations(answer) if exact else []
     cited_sources = []
-    for document_id, page in zip(question["gold_documents"], question["gold_pages"]):
-        document_hit = document_id.casefold() in answer.casefold()
-        page_hit = bool(re.search(rf"(?:p\.?\s*|page\s*=*\s*){page}\b", answer, re.I))
-        cited_sources.append(document_hit and page_hit)
+    for document_id, page in zip(question["gold_documents"], question["gold_pages"], strict=True):
+        if exact:
+            cited_sources.append((document_id.casefold(), int(page)) in citations)
+        else:
+            document_hit = document_id.casefold() in answer.casefold()
+            page_hit = bool(re.search(rf"(?:p\.?\s*|page\s*=*\s*){page}\b", answer, re.I))
+            cited_sources.append(document_hit and page_hit)
+    valid_citations = None
+    if exact and context is not None:
+        available = {
+            (item["document_id"].casefold(), page)
+            for item in context
+            for page in range(int(item["page_start"]), int(item["page_end"]) + 1)
+        }
+        valid_citations = sum(citation in available for citation in citations)
     is_abstention = abstained(answer)
     deterministically_scorable = question["category"] in {"direct", "numeric_date", "unanswerable"}
     if question["category"] == "unanswerable":
@@ -80,6 +104,11 @@ def score(answer_record: dict, question: dict) -> dict:
         "abstained": is_abstention,
         "deterministic_correct": deterministic_correct,
         "citation_recall": None if not cited_sources else sum(cited_sources) / len(cited_sources),
+        "citation_policy": "exact" if exact else "legacy_document_and_page_match",
+        "citation_count": len(citations) if exact else None,
+        "citation_validity": (
+            valid_citations / len(citations) if valid_citations is not None and citations else None
+        ),
         "elapsed_seconds": answer_record.get("elapsed_seconds"),
         "input_tokens": stats.get("input_tokens"),
         "output_tokens": stats.get("output_tokens"),
@@ -94,9 +123,22 @@ def mean(values: list[float | int | bool | None]) -> float | None:
 
 def main() -> None:
     args = parse_args()
+    if args.exact_citations and args.retrieval is None:
+        raise ValueError("--exact-citations requires --retrieval to check citation validity")
     questions = {record["question_id"]: record for record in read_jsonl(args.questions)}
+    retrieval = {}
+    if args.retrieval is not None:
+        rows = read_jsonl(args.retrieval)
+        keys = [(row["setup"], row["question_id"]) for row in rows]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Duplicate retrieval setup/question pairs")
+        retrieval = dict(zip(keys, rows, strict=True))
     scores = [
-        score(record, questions[record["question_id"]])
+        score(
+            record, questions[record["question_id"]], exact=args.exact_citations,
+            context=retrieval[(record["setup"], record["question_id"])]["results"]
+            if args.exact_citations else None,
+        )
         for record in read_jsonl(args.answers)
         if record.get("status") == "ok"
     ]
@@ -120,6 +162,7 @@ def main() -> None:
                 record["abstained"] for record in records if not record["answerable"]
             ]),
             "citation_recall": mean([record["citation_recall"] for record in records]),
+            "citation_validity": mean([record["citation_validity"] for record in records]),
             "mean_elapsed_seconds": mean([record["elapsed_seconds"] for record in records]),
             "mean_tokens_per_second": mean([record["tokens_per_second"] for record in records]),
         }

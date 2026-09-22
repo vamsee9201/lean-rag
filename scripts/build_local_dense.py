@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True)
     parser.add_argument("--model-label")
     parser.add_argument("--dimensions", type=int, default=768)
+    parser.add_argument(
+        "--truncate-dim",
+        type=int,
+        help="Matryoshka output dimension. Defaults to --dimensions when supplied.",
+    )
     parser.add_argument("--max-seq-length", type=int, default=1024)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--flush-every", type=int, default=512)
@@ -83,7 +88,11 @@ def main() -> None:
         vectors = np.lib.format.open_memmap(
             partial_path, mode="w+", dtype=np.float32, shape=(len(chunks), args.dimensions)
         )
-    model = SentenceTransformer(args.model, trust_remote_code=True, device=args.device)
+    model_kwargs = {"trust_remote_code": True, "device": args.device}
+    truncate_dim = args.truncate_dim
+    if truncate_dim is not None:
+        model_kwargs["truncate_dim"] = truncate_dim
+    model = SentenceTransformer(args.model, **model_kwargs)
     model.max_seq_length = args.max_seq_length
     tokenizer = model.tokenizer
     for start in range(completed, len(chunks), args.flush_every):
@@ -114,6 +123,7 @@ def main() -> None:
         "complete": True, "split": args.split, "model": args.model_label or args.model,
         "model_source": args.model, "dimensions": args.dimensions, "dtype": "float32",
         "normalized": True, "max_sequence_length": args.max_seq_length,
+        "truncate_dim": truncate_dim,
         "chunks": len(chunks), "token_count": token_count,
         "truncated_chunks": truncated_count,
         "truncation_policy": f"explicit tokenizer truncation at {args.max_seq_length} tokens",

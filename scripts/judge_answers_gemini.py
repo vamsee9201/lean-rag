@@ -8,10 +8,11 @@ import json
 from pathlib import Path
 import random
 import re
+import time
 
-from google.genai import types
+from google.genai import errors, types
 
-from gemini_vertex import create_client, generation_config, usage_dict
+from gemini_vertex import create_client, estimated_cost_usd, generation_config, usage_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-model", default="gemini-3.8-flash")
     parser.add_argument("--location", default="global")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--max-cost-usd", type=float)
+    parser.add_argument("--expected-per-question", type=int)
     return parser.parse_args()
 
 
@@ -51,14 +54,36 @@ def parse_array(text: str) -> list[dict]:
 
 def main() -> None:
     args = parse_args()
+    if args.max_cost_usd is not None and args.api_model != "gemini-3.8-flash":
+        raise ValueError("The budget estimator is priced for gemini-3.8-flash only")
+    if args.force and args.max_cost_usd is not None:
+        raise ValueError("--force would erase recorded spending for a budgeted judge run")
     if args.force:
         args.output.unlink(missing_ok=True)
         args.usage_output.unlink(missing_ok=True)
+    if args.max_cost_usd is not None and args.max_cost_usd <= 0:
+        raise ValueError("--max-cost-usd must be positive")
+    spent = sum(
+        estimated_cost_usd(row, args.location)
+        for row in read_jsonl(args.usage_output)
+    ) if args.usage_output.exists() else 0.0
     questions = {row["question_id"]: row for row in read_jsonl(args.questions)}
     answers_by_question = {question_id: [] for question_id in questions}
     for row in read_jsonl(args.answers):
         if row.get("status") == "ok":
+            if row["question_id"] not in answers_by_question:
+                raise ValueError(f"Answer has unknown question ID: {row['question_id']}")
             answers_by_question[row["question_id"]].append(row)
+    if args.expected_per_question is not None:
+        if args.expected_per_question <= 0:
+            raise ValueError("--expected-per-question must be positive")
+        for question_id, answer_rows in answers_by_question.items():
+            keys = [(row["model"], row["setup"]) for row in answer_rows]
+            if len(keys) != args.expected_per_question or len(set(keys)) != len(keys):
+                raise ValueError(
+                    f"{question_id} has {len(keys)} unique/valid answers; "
+                    f"expected {args.expected_per_question}"
+                )
     completed = set()
     if args.output.exists():
         completed = {
@@ -105,6 +130,11 @@ def main() -> None:
             expected = {label for label, _row in blinded}
             last_error = None
             for attempt in range(3):
+                if args.max_cost_usd is not None and spent + 0.015 > args.max_cost_usd:
+                    raise RuntimeError(
+                        f"Gemini judge budget gate: ${spent:.4f} recorded, "
+                        f"${args.max_cost_usd:.4f} stage cap"
+                    )
                 retry_note = "" if attempt == 0 else (
                     "\n\nCORRECTION: answer_score must be 0, 1, or 2; citation_score must be 0 or 1."
                 )
@@ -116,8 +146,17 @@ def main() -> None:
                         contents=prompt + retry_note,
                         config=config,
                     )
+                    request_usage = usage_dict(response)
+                    spent += estimated_cost_usd(request_usage, args.location)
+                    usage_stream.write(json.dumps({
+                        "question_id": question_id,
+                        "attempt": attempt + 1,
+                        **request_usage,
+                    }) + "\n")
+                    usage_stream.flush()
                     ratings = parse_array(response.text or "")
-                    if {rating.get("id") for rating in ratings} != expected:
+                    if (len(ratings) != len(expected)
+                        or {rating.get("id") for rating in ratings} != expected):
                         raise ValueError("Judge did not return exactly the blinded candidate IDs")
                     if any(rating.get("answer_score") not in {0, 1, 2} for rating in ratings):
                         raise ValueError("Judge returned an invalid answer_score")
@@ -126,6 +165,21 @@ def main() -> None:
                     if any(rating.get("unsupported_claim") not in {0, 1} for rating in ratings):
                         raise ValueError("Judge returned an invalid unsupported_claim")
                     break
+                except errors.APIError as exc:
+                    usage_stream.write(json.dumps({
+                        "question_id": question_id,
+                        "attempt": attempt + 1,
+                        "api_error_code": exc.code,
+                    }) + "\n")
+                    usage_stream.flush()
+                    if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                        raise
+                    delay = 5 * 2 ** attempt
+                    print(
+                        f"{question_id}: transient API {exc.code}; retrying after {delay}s",
+                        flush=True,
+                    )
+                    time.sleep(delay)
                 except (IndexError, KeyError, TypeError, ValueError) as exc:
                     last_error = exc
             else:
@@ -147,12 +201,6 @@ def main() -> None:
                 }
                 scores.write(json.dumps(output, ensure_ascii=False) + "\n")
             scores.flush()
-            usage_stream.write(json.dumps({
-                "question_id": question_id,
-                "attempt": attempt + 1,
-                **usage_dict(response),
-            }) + "\n")
-            usage_stream.flush()
             print(f"{index}/{len(questions)} {question_id}: {len(pending)} answers judged", flush=True)
 
 

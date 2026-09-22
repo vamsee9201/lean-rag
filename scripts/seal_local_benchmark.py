@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and seal the third experiment's document-isolated benchmark."""
+"""Validate and seal a document-isolated benchmark."""
 
 from __future__ import annotations
 
@@ -44,6 +44,10 @@ def main() -> None:
     parser.add_argument("--documents", type=Path, default=base / "test/documents.jsonl")
     parser.add_argument("--output", type=Path, default=base / "benchmark/questions.jsonl")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--previous-questions", type=Path, action="append")
+    parser.add_argument("--excluded-documents", type=Path, action="append")
+    parser.add_argument("--question-prefix", default="local-test")
+    parser.add_argument("--generation-seed", type=int, default=20260907)
     args = parser.parse_args()
     if args.output.exists() and not args.force:
         raise SystemExit(f"Output exists: {args.output}; pass --force")
@@ -52,15 +56,20 @@ def main() -> None:
     if counts != Counter(EXPECTED) or len(sources) != 50:
         raise ValueError(f"Unexpected benchmark composition: {counts}")
     documents = {row["document_id"]: row for row in read_jsonl(args.documents)}
-    pages = {(row["document_id"], row["page"]): compact(row["text"]) for row in read_jsonl(args.pages)}
-    previous_paths = [
+    pages = {(row["document_id"], row["page"]): row["text"] for row in read_jsonl(args.pages)}
+    previous_paths = args.previous_questions or [
         ROOT / "data/final_benchmark/questions.jsonl",
         ROOT / "data/hybrid_experiment/benchmark/questions.jsonl",
         ROOT / "data/benchmark/questions.jsonl",
     ]
     previous = [row for path in previous_paths if path.exists() for row in read_jsonl(path)]
+    excluded_document_paths = args.excluded_documents or [
+        ROOT / "data/processed/corpus500/documents.jsonl"
+    ]
     old_documents = {
-        row["document_id"] for row in read_jsonl(ROOT / "data/processed/corpus500/documents.jsonl")
+        row["document_id"]
+        for path in excluded_document_paths
+        for row in read_jsonl(path)
     }
     rows = []
     category_number = Counter()
@@ -73,11 +82,11 @@ def main() -> None:
         ):
             if document not in documents or document in old_documents:
                 raise ValueError(f"Gold document is not isolated: {document}")
-            if compact(quotation) not in pages.get((document, page), ""):
+            if quotation not in pages.get((document, page), ""):
                 raise ValueError(f"Gold quotation is not exact: {document} p.{page}")
         category_number[source["category"]] += 1
         row = {
-            "question_id": f"local-test-{source['category']}-{category_number[source['category']]:04d}",
+            "question_id": f"{args.question_prefix}-{source['category']}-{category_number[source['category']]:04d}",
             "category": source["category"], "question": source["question"],
             "reference_answer": source["reference_answer"], "answerable": True,
             "gold_documents": source["gold_documents"], "gold_pages": source["gold_pages"],
@@ -97,7 +106,9 @@ def main() -> None:
         "test_documents": len(documents), "previous_document_overlap": 0,
         "question_sha256": digest,
         "test_document_ids_sha256": hashlib.sha256("\n".join(sorted(documents)).encode()).hexdigest(),
-        "generation_model": "gemini-3.8-flash", "generation_seed": 20260907,
+        "generation_model": "gemini-3.8-flash", "generation_seed": args.generation_seed,
+        "previous_question_files": [str(path) for path in previous_paths],
+        "excluded_document_files": [str(path) for path in excluded_document_paths],
         "duplicate_thresholds": {"sequence_match": 0.82, "token_jaccard": 0.75},
     }
     args.output.with_name("benchmark_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

@@ -26,12 +26,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, default=ROOT / "data" / "manifest.csv")
     parser.add_argument(
         "--previous-documents",
+        "--exclude-documents",
+        dest="previous_documents",
         type=Path,
-        default=ROOT / "data" / "processed" / "corpus500" / "documents.jsonl",
+        action="append",
+        default=None,
+        help="Documents JSONL to exclude. May be repeated.",
     )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--searchable-documents", type=int, default=90)
     parser.add_argument("--seed", type=int, default=20260907)
+    parser.add_argument("--split-label", default="test_v3")
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -59,7 +64,10 @@ def main() -> None:
     if any(path.exists() for path in outputs) and not args.force:
         raise SystemExit(f"Output exists under {args.output_dir}; pass --force to replace it")
 
-    previous = read_jsonl(args.previous_documents)
+    previous_paths = args.previous_documents or [
+        ROOT / "data" / "processed" / "corpus500" / "documents.jsonl"
+    ]
+    previous = [row for path in previous_paths for row in read_jsonl(path)]
     previous_ids = {row["document_id"] for row in previous}
     previous_hashes = {row["sha256"] for row in previous}
     candidates = [
@@ -102,7 +110,7 @@ def main() -> None:
         for _, document in selected:
             stream.write(json.dumps({
                 "document_id": document["document_id"],
-                "split": "test_v3",
+                "split": args.split_label,
                 "collection": document["collection"],
                 "searchable": True,
                 "sha256": document["sha256"],
@@ -121,6 +129,7 @@ def main() -> None:
         "collections": dict(sorted(Counter(doc["collection"] for _, doc in selected).items())),
         "previous_document_ids": len(previous_ids),
         "previous_pdf_hashes": len(previous_hashes),
+        "excluded_document_files": [str(path) for path in previous_paths],
         "document_ids_sha256": hashlib.sha256(
             "\n".join(doc["document_id"] for _, doc in selected).encode()
         ).hexdigest(),

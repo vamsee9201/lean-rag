@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from collections import Counter
+import hashlib
 import json
 import tempfile
 import unittest
@@ -21,9 +22,170 @@ from prepare_finetune_split import split_documents
 from retrieve_benchmark import metrics as retrieval_metrics
 from hybrid_retrieval import DenseIndex, normalize, reciprocal_rank_fusion
 from retriever_training_utils import resolve_positives, valid_negative
+from run_qwen_embedding_local_judge import parse_scores
+from qwen3_adapter_metadata import sanitize_adapter
+from verify_qwen_embedding_matrix import MODELS as QWEN_MATRIX_MODELS, SETUPS as QWEN_MATRIX_SETUPS, verify_matrix
+from run_qwen_embedding_retrieval import write_frozen
+from train_qwen35_qwen_embedding import verify_reload as verify_qwen_reload
+from qwen3_index_shards import chunk_order_sha256, file_sha256, reusable_shard, shard_directory
+from gemini_vertex import estimated_cost_usd
+from verify_qwen_embedding_artifacts import verify_disjoint_documents
+from summarize_qwen_embedding_experiment import keyed_records
+from score_answers import score as score_answer
 
 
 class PipelineTests(unittest.TestCase):
+    def test_fourth_experiment_exact_citations_require_correct_pair_and_evidence(self):
+        question = {"reference_answer": "2001", "gold_documents": ["DOC-A"],
+                    "gold_pages": [2], "category": "numeric_date", "answerable": True}
+        answer = {"model": "m", "setup": "s", "question_id": "q",
+                  "answer": "The year is 2001. DOC-A appears here and p.2 appears there."}
+        context = [{"document_id": "DOC-A", "page_start": 2, "page_end": 2}]
+        self.assertEqual(score_answer(answer, question)["citation_recall"], 1.0)
+        self.assertEqual(score_answer(answer, question, exact=True, context=context)["citation_recall"], 0.0)
+        answer["answer"] = "The year is 2001 [DOC-A p.2] [DOC-A p.9]."
+        result = score_answer(answer, question, exact=True, context=context)
+        self.assertEqual(result["citation_recall"], 1.0)
+        self.assertEqual(result["citation_validity"], 0.5)
+
+    def test_fourth_experiment_summary_rejects_duplicate_and_invalid_judge_ratings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ratings.jsonl"
+            row = {"model": "a", "setup": "b", "question_id": "c",
+                   "answer_score": 2, "citation_score": 1, "unsupported_claim": 0}
+            path.write_text(json.dumps(row) + "\n" + json.dumps(row) + "\n")
+            with self.assertRaisesRegex(ValueError, "unique ratings"):
+                keyed_records(path, "qwen_judge", expected_count=2)
+            row["answer_score"] = 3
+            path.write_text(json.dumps(row) + "\n")
+            with self.assertRaisesRegex(ValueError, "invalid judge rating"):
+                keyed_records(path, "qwen_judge", expected_count=1)
+
+    def test_qwen_embedding_index_splits_reject_shared_documents(self):
+        disjoint = {"train": {"a"}, "validation": {"b"}, "test_v4": {"c"}}
+        verify_disjoint_documents(disjoint)
+        with self.assertRaisesRegex(ValueError, "Documents shared between train and test_v4"):
+            verify_disjoint_documents({**disjoint, "test_v4": {"a"}})
+
+    def test_gemini_cost_estimate_includes_billable_output_and_reasoning(self):
+        usage = {"input_tokens": 1_000_000, "output_tokens": 100_000,
+                 "reasoning_tokens": 20_000}
+        self.assertAlmostEqual(estimated_cost_usd(usage, "global"), 1.20)
+        self.assertAlmostEqual(estimated_cost_usd(usage, "us-central1"), 1.32)
+
+    def test_qwen_embedding_shard_resume_rejects_reorder_and_corruption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            chunks = [{"chunk_id": "a"}, {"chunk_id": "b"}]
+            shard = shard_directory(root, "train", 0)
+            shard.mkdir(parents=True)
+            vectors = np.zeros((2, 768), dtype=np.float32)
+            vectors[:, 0] = 1
+            np.save(shard / "embeddings.npy", vectors)
+            (shard / "chunk_ids.json").write_text(json.dumps(["a", "b"]) + "\n")
+            manifest = {
+                "split": "train", "shard_number": 0, "chunks": 2,
+                "dimensions": 768, "chunk_order_sha256": chunk_order_sha256(chunks),
+                "embeddings_sha256": file_sha256(shard / "embeddings.npy"),
+            }
+            (shard / "manifest.json").write_text(json.dumps(manifest))
+            self.assertEqual(reusable_shard(shard, chunks, "train", 0).shape, (2, 768))
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                reusable_shard(shard, list(reversed(chunks)), "train", 0)
+            vectors[0, 0] = 0
+            np.save(shard / "embeddings.npy", vectors)
+            with self.assertRaisesRegex(RuntimeError, "invalid vectors"):
+                reusable_shard(shard, chunks, "train", 0)
+
+    def test_qwen_adapter_reload_requires_matching_unique_validation_prompts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "validation.jsonl"
+            messages = [
+                {"role": "system", "content": "Use evidence"},
+                {"role": "user", "content": "What year?"},
+                {"role": "assistant", "content": "2025"},
+            ]
+            path.write_text(json.dumps({"messages": messages}) + "\n")
+            output = {"messages": messages[:2], "response": "2025 [DOC p.1]"}
+            verify_qwen_reload([output], path)
+            with self.assertRaisesRegex(RuntimeError, "duplicate"):
+                verify_qwen_reload([output, output], path)
+            with self.assertRaisesRegex(RuntimeError, "empty"):
+                verify_qwen_reload([{**output, "response": ""}], path)
+
+    def test_frozen_qwen_retrieval_settings_cannot_change_in_place(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "frozen.json"
+            first = write_frozen(path, {"candidate_depth": 50, "dense_weight": 1.0})
+            self.assertEqual(first, write_frozen(path, {"candidate_depth": 50, "dense_weight": 1.0}))
+            with self.assertRaisesRegex(RuntimeError, "separately versioned run"):
+                write_frozen(path, {"candidate_depth": 20, "dense_weight": 1.0})
+            self.assertEqual(json.loads(path.read_text()), first)
+
+    def test_qwen_matrix_verifies_frozen_user_and_system_prompts(self):
+        system = "Only use supplied evidence."
+        system_hash = hashlib.sha256(system.encode()).hexdigest()
+        prompt_hash = hashlib.sha256(b"evidence and question").hexdigest()
+        manifest = {
+            "system_prompt": system,
+            "setups": {
+                setup: {"evidence_hashes": {f"q{i}": prompt_hash for i in range(50)}}
+                for setup in QWEN_MATRIX_SETUPS
+            },
+        }
+        rows = [
+            {"model": model, "setup": setup, "question_id": f"q{i}",
+             "status": "ok", "prompt_sha256": prompt_hash,
+             "system_prompt_sha256": system_hash}
+            for model in QWEN_MATRIX_MODELS
+            for setup in QWEN_MATRIX_SETUPS
+            for i in range(50)
+        ]
+        self.assertEqual(verify_matrix(rows, manifest)["answers"], 1000)
+        rows[0]["system_prompt_sha256"] = "wrong"
+        with self.assertRaisesRegex(ValueError, "system prompt"):
+            verify_matrix(rows, manifest)
+        rows[0]["system_prompt_sha256"] = system_hash
+        rows[0]["prompt_sha256"] = "wrong"
+        with self.assertRaisesRegex(ValueError, "question or evidence"):
+            verify_matrix(rows, manifest)
+
+    def test_swift_adapter_metadata_is_portable_without_changing_weights(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = Path(directory)
+            (adapter / "adapter_config.json").write_text(json.dumps({
+                "base_model_name_or_path": "/root/.cache/huggingface/snapshots/abc",
+                "r": 8,
+            }))
+            (adapter / "adapter_model.safetensors").write_bytes(b"weights")
+            sanitize_adapter(adapter, "Qwen/Qwen3-Embedding-8B")
+            config = json.loads((adapter / "adapter_config.json").read_text())
+            self.assertEqual(config["base_model_name_or_path"], "Qwen/Qwen3-Embedding-8B")
+            self.assertEqual(config["r"], 8)
+            self.assertIn("base_model: Qwen/Qwen3-Embedding-8B", (adapter / "README.md").read_text())
+            self.assertEqual((adapter / "adapter_model.safetensors").read_bytes(), b"weights")
+            sanitize_adapter(
+                adapter, "Qwen/Qwen3.5-9B", title="GovInfo Qwen RAG adapter",
+                description="Generator adapter.", tags=("lora", "text-generation"),
+            )
+            card = (adapter / "README.md").read_text()
+            self.assertIn("base_model: Qwen/Qwen3.5-9B", card)
+            self.assertIn("# GovInfo Qwen RAG adapter", card)
+            self.assertIn("  - text-generation", card)
+            self.assertNotIn("text-embeddings", card)
+            self.assertEqual((adapter / "adapter_model.safetensors").read_bytes(), b"weights")
+
+    def test_blind_local_judge_requires_complete_unique_valid_ratings(self):
+        valid = json.dumps([
+            {"id": "a01", "answer_score": 2, "citation_score": 1, "unsupported_claim": 0},
+            {"id": "a02", "answer_score": 0, "citation_score": 0, "unsupported_claim": 1},
+        ])
+        self.assertEqual(len(parse_scores(valid, {"a01", "a02"})), 2)
+        with self.assertRaises(ValueError):
+            parse_scores(valid.replace('"a02"', '"a01"'), {"a01", "a02"})
+        with self.assertRaises(ValueError):
+            parse_scores(valid.replace('"unsupported_claim": 1', '"unsupported_claim": 2'), {"a01", "a02"})
+
     def test_retriever_supervision_resolves_gold_and_filters_unsafe_negatives(self):
         question = {
             "question_id": "q1", "reference_answer": "17 countries",

@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metadata", type=Path)
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--model", default="Qwen/Qwen3.5-9B")
+    parser.add_argument("--model-revision")
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
@@ -106,7 +107,7 @@ def main() -> None:
     questions = {row["question_id"]: row for row in read_jsonl(questions_path)}
     retrieval = {row["question_id"]: row for row in read_jsonl(args.retrieval)}
     accepted = read_jsonl(accepted_path)
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.model_revision)
     db = sqlite3.connect(bm25_path)
     db.row_factory = sqlite3.Row
     records, metadata = [], []
